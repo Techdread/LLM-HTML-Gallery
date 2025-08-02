@@ -1,0 +1,17 @@
+{
+    "id": "particle-system",
+    "title": "Animated Particle System",
+    "htmlContent": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>Particle System</title>\n    <style>\n        body {\n            margin: 0;\n            padding: 0;\n            background: radial-gradient(circle, #1a1a2e, #0f0f23);\n            overflow: hidden;\n        }\n        canvas {\n            display: block;\n        }\n    </style>\n</head>\n<body>\n    <canvas id=\"canvas\"></canvas>\n    <script>\n        const canvas = document.getElementById('canvas');\n        const ctx = canvas.getContext('2d');\n        \n        canvas.width = window.innerWidth;\n        canvas.height = window.innerHeight;\n        \n        const particles = [];\n        const numParticles = 150;\n        \n        class Particle {\n            constructor() {\n                this.x = Math.random() * canvas.width;\n                this.y = Math.random() * canvas.height;\n                this.vx = (Math.random() - 0.5) * 2;\n                this.vy = (Math.random() - 0.5) * 2;\n                this.radius = Math.random() * 3 + 1;\n                this.color = `hsl(${Math.random() * 60 + 200}, 100%, 70%)`;\n                this.alpha = Math.random() * 0.8 + 0.2;\n            }\n            \n            update() {\n                this.x += this.vx;\n                this.y += this.vy;\n                \n                if (this.x < 0 || this.x > canvas.width) this.vx *= -1;\n                if (this.y < 0 || this.y > canvas.height) this.vy *= -1;\n                \n                this.alpha = Math.sin(Date.now() * 0.001 + this.x * 0.01) * 0.3 + 0.7;\n            }\n            \n            draw() {\n                ctx.save();\n                ctx.globalAlpha = this.alpha;\n                ctx.beginPath();\n                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);\n                ctx.fillStyle = this.color;\n                ctx.fill();\n                \n                // Add glow effect\n                ctx.shadowColor = this.color;\n                ctx.shadowBlur = 20;\n                ctx.fill();\n                ctx.restore();\n            }\n        }\n        \n        // Initialize particles\n        for (let i = 0; i < numParticles; i++) {\n            particles.push(new Particle());\n        }\n        \n        function animate() {\n            ctx.fillStyle = 'rgba(26, 26, 46, 0.1)';\n            ctx.fillRect(0, 0, canvas.width, canvas.height);\n            \n            particles.forEach(particle => {\n                particle.update();\n                particle.draw();\n            });\n            \n            requestAnimationFrame(animate);\n        }\n        \n        window.addEventListener('resize', () => {\n            canvas.width = window.innerWidth;\n            canvas.height = window.innerHeight;\n        });\n        \n        animate();\n    </script>\n</body>\n</html>",
+    "metadata": {
+        "model": "Claude-3",
+        "prompt": "Create an animated particle system with glowing particles that bounce around the screen",
+        "timestamp": "2025-01-14T14:22:00Z",
+        "tags": [
+            "Canvas",
+            "Animation",
+            "Particles",
+            "Visual Effects"
+        ],
+        "description": "A mesmerizing particle system with glowing orbs that bounce around the screen with smooth animations."
+    }
+}

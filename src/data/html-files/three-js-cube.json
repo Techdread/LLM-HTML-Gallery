@@ -1,0 +1,17 @@
+{
+    "id": "three-js-rotating-cube",
+    "title": "Three.js Rotating Cube",
+    "htmlContent": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>Three.js Rotating Cube</title>\n    <style>\n        body { margin: 0; overflow: hidden; background: #0a0a0a; }\n        canvas { display: block; }\n    </style>\n</head>\n<body>\n    <script src=\"https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js\"></script>\n    <script>\n        // Scene setup\n        const scene = new THREE.Scene();\n        scene.background = new THREE.Color(0x0a0a0a);\n        \n        const camera = new THREE.PerspectiveCamera(\n            75, window.innerWidth / window.innerHeight, 0.1, 1000\n        );\n        camera.position.z = 5;\n        \n        const renderer = new THREE.WebGLRenderer({ antialias: true });\n        renderer.setSize(window.innerWidth, window.innerHeight);\n        document.body.appendChild(renderer.domElement);\n        \n        // Lighting\n        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);\n        scene.add(ambientLight);\n        \n        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);\n        directionalLight.position.set(1, 1, 0.5);\n        scene.add(directionalLight);\n        \n        // Create cube with colorful material\n        const geometry = new THREE.BoxGeometry(2, 2, 2);\n        const material = new THREE.MeshPhongMaterial({\n            color: 0x00ff88,\n            specular: 0x444444,\n            shininess: 100\n        });\n        const cube = new THREE.Mesh(geometry, material);\n        scene.add(cube);\n        \n        // Animation loop\n        function animate() {\n            requestAnimationFrame(animate);\n            \n            cube.rotation.x += 0.01;\n            cube.rotation.y += 0.01;\n            \n            renderer.render(scene, camera);\n        }\n        \n        // Handle resize\n        window.addEventListener('resize', () => {\n            camera.aspect = window.innerWidth / window.innerHeight;\n            camera.updateProjectionMatrix();\n            renderer.setSize(window.innerWidth, window.innerHeight);\n        });\n        \n        animate();\n    </script>\n</body>\n</html>",
+    "metadata": {
+        "model": "GPT-4",
+        "prompt": "Create a simple rotating cube using Three.js with nice lighting",
+        "timestamp": "2025-01-15T10:30:00Z",
+        "tags": [
+            "Three.js",
+            "Animation",
+            "3D",
+            "WebGL"
+        ],
+        "description": "A minimal Three.js scene featuring a rotating green cube with ambient and directional lighting."
+    }
+}
