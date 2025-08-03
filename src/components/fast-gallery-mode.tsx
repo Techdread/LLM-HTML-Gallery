@@ -157,7 +157,7 @@ export const FastGalleryMode: React.FC<{
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   
   // Fullscreen viewer state
-  const [fullscreenItem, setFullscreenItem] = useState<GenerationItem | null>(null);
+  const [fullscreenData, setFullscreenData] = useState<HtmlFileData | null>(null);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   
   // Gallery mode toggle (fast vs full)
@@ -174,7 +174,7 @@ export const FastGalleryMode: React.FC<{
   // Fullscreen viewer handlers
   const handleCloseFullscreen = useCallback(() => {
     setIsFullscreenOpen(false);
-    setFullscreenItem(null);
+    setFullscreenData(null);
   }, []);
 
   const observerRef = useRef<IntersectionObserver>();
@@ -223,10 +223,14 @@ export const FastGalleryMode: React.FC<{
   }, []);
 
   const handleItemClick = useCallback((item: GenerationItem) => {
-    setFullscreenItem(item);
-    setIsFullscreenOpen(true);
+    // Find the original HtmlFileData by ID
+    const originalData = htmlFiles.find(file => file.id === item.id);
+    if (originalData) {
+      setFullscreenData(originalData);
+      setIsFullscreenOpen(true);
+    }
     onItemClick(item);
-  }, [onItemClick]);
+  }, [onItemClick, htmlFiles]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -445,20 +449,9 @@ export const FastGalleryMode: React.FC<{
       )}
 
       {/* Fullscreen Viewer */}
-      {fullscreenItem && (
+      {fullscreenData && (
         <FullscreenViewer
-          data={{
-            id: fullscreenItem.id,
-            title: fullscreenItem.prompt,
-            htmlContent: fullscreenItem.htmlContent,
-            metadata: {
-              model: fullscreenItem.model,
-              prompt: fullscreenItem.prompt,
-              timestamp: fullscreenItem.timestamp,
-              tags: fullscreenItem.tags,
-              description: ''
-            }
-          }}
+          data={fullscreenData}
           isOpen={isFullscreenOpen}
           onClose={handleCloseFullscreen}
         />

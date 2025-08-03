@@ -52,14 +52,14 @@ export const FullscreenViewer: React.FC<FullscreenViewerProps> = ({
         </Button>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden" style={{ height: 'calc(100vh - 80px)' }}>
+      {/* Content - Use exact same configuration as admin mode */}
+      <div className="p-4" style={{ height: 'calc(100vh - 80px)', overflow: 'auto' }}>
         <LLMHtmlViewer
+          key={data.id}
           data={data}
-          height={typeof window !== 'undefined' ? window.innerHeight - 80 : 600}
-          defaultShowCode={false}
+          height={500}
           viewMode="side-by-side"
-          className="h-full"
+          defaultShowCode={true}
         />
       </div>
     </div>
