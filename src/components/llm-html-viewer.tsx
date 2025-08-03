@@ -111,14 +111,28 @@ export const LLMHtmlViewer: React.FC<LLMHtmlViewerProps> = ({
         setTimeout(() => URL.revokeObjectURL(url), 1000)
     }
 
-    const formatDate = (date: Date) => {
+    const formatDate = (date: Date | string | number) => {
+        // Convert to Date object if it's not already
+        let dateObj: Date;
+        
+        if (date instanceof Date) {
+            dateObj = date;
+        } else {
+            dateObj = new Date(date);
+        }
+        
+        // Check if the date is valid
+        if (!dateObj || isNaN(dateObj.getTime())) {
+            return 'Invalid Date';
+        }
+        
         return new Intl.DateTimeFormat('en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric',
             hour: '2-digit',
             minute: '2-digit',
-        }).format(date)
+        }).format(dateObj)
     }
 
     const shouldShowSplitView = showCode && viewMode === 'side-by-side'
