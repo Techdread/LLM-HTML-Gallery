@@ -84,6 +84,7 @@ export default function Home() {
             <FastGalleryMode 
                 fetchGenerations={(page, filters) => fetchGenerations(htmlFiles, page, filters)}
                 onItemClick={handleItemClick}
+                htmlFiles={htmlFiles}
             />
         </div>
     );

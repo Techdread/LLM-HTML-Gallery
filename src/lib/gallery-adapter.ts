@@ -1,23 +1,18 @@
 import { GenerationItem, GalleryFilters } from '@/components/fast-gallery-mode';
+import { HtmlFileData } from './types';
 
-// Type for the existing HTML file structure
-interface HtmlFile {
-  id: string;
-  title: string;
-  htmlContent: string;
-  metadata: {
-    model: string;
-    prompt: string;
-    timestamp: string;
-    tags: string[];
-    description: string;
-  };
-}
+// Use the existing HtmlFileData type
+type HtmlFile = HtmlFileData;
 
 // Helper function to safely parse dates
-function parseDate(timestamp: string | undefined): Date {
+function parseDate(timestamp: string | Date | undefined): Date {
   if (!timestamp) {
     return new Date();
+  }
+  
+  // If it's already a Date object, return it
+  if (timestamp instanceof Date) {
+    return timestamp;
   }
   
   const date = new Date(timestamp);

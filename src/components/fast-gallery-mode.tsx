@@ -22,6 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { FullscreenViewer } from '@/components/fullscreen-viewer';
+import { GalleryView } from '@/components/gallery-view';
+import { HtmlFileData } from '@/lib/types';
 
 // Types
 export interface GenerationItem {
@@ -73,25 +76,17 @@ const GalleryCard: React.FC<{
       onClick={() => onClick(item)}
     >
       <div className="aspect-video relative overflow-hidden rounded-t-lg bg-gray-100">
-        {item.thumbnail && !thumbnailError ? (
-          <>
-            {!thumbnailLoaded && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-              </div>
-            )}
-            <img
-              src={item.thumbnail}
-              alt={`Preview of ${item.prompt.slice(0, 50)}...`}
-              className={`w-full h-full object-cover transition-opacity duration-200 ${
-                thumbnailLoaded ? 'opacity-100' : 'opacity-0'
-              }`}
-              onLoad={handleThumbnailLoad}
-              onError={handleThumbnailError}
-            />
-          </>
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
+        {/* Render HTML preview in iframe */}
+        <iframe
+          srcDoc={item.htmlContent}
+          className="w-full h-full border-0 pointer-events-none"
+          style={{ transform: 'scale(0.5)', transformOrigin: 'top left', width: '200%', height: '200%' }}
+          sandbox="allow-scripts"
+        />
+        
+        {/* Fallback for loading */}
+        {!item.htmlContent && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
             <Sparkles className="w-8 h-8 text-gray-400" />
           </div>
         )}
@@ -151,7 +146,8 @@ export const FastGalleryMode: React.FC<{
     total: number;
   }>;
   onItemClick: (item: GenerationItem) => void;
-}> = ({ fetchGenerations, onItemClick }) => {
+  htmlFiles: HtmlFileData[]; // For GalleryView component
+}> = ({ fetchGenerations, onItemClick, htmlFiles }) => {
   const [items, setItems] = useState<GenerationItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -160,6 +156,13 @@ export const FastGalleryMode: React.FC<{
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   
+  // Fullscreen viewer state
+  const [fullscreenItem, setFullscreenItem] = useState<GenerationItem | null>(null);
+  const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
+  
+  // Gallery mode toggle (fast vs full)
+  const [galleryMode, setGalleryMode] = useState<'fast' | 'full'>('fast');
+  
   const [filters, setFilters] = useState<GalleryFilters>({
     search: '',
     model: null,
@@ -167,6 +170,12 @@ export const FastGalleryMode: React.FC<{
     dateRange: { from: null, to: null },
     sortBy: 'newest'
   });
+
+  // Fullscreen viewer handlers
+  const handleCloseFullscreen = useCallback(() => {
+    setIsFullscreenOpen(false);
+    setFullscreenItem(null);
+  }, []);
 
   const observerRef = useRef<IntersectionObserver>();
   const lastItemRef = useCallback((node: HTMLDivElement) => {
@@ -214,13 +223,16 @@ export const FastGalleryMode: React.FC<{
   }, []);
 
   const handleItemClick = useCallback((item: GenerationItem) => {
+    setFullscreenItem(item);
+    setIsFullscreenOpen(true);
     onItemClick(item);
   }, [onItemClick]);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="sticky top-0 z-20 bg-white border-b shadow-sm">
+      {/* Header - Only show for Fast Gallery mode */}
+      {galleryMode === 'fast' && (
+        <div className="sticky top-0 z-20 bg-white border-b shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex flex-col lg:flex-row gap-4">
             {/* Search */}
@@ -291,6 +303,26 @@ export const FastGalleryMode: React.FC<{
                   <List className="w-4 h-4" />
                 </Button>
               </div>
+              
+              {/* Gallery Mode Toggle */}
+              <div className="flex border rounded-md ml-2">
+                <Button
+                  variant={galleryMode === 'fast' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setGalleryMode('fast')}
+                  className="rounded-r-none"
+                >
+                  Fast Gallery
+                </Button>
+                <Button
+                  variant={galleryMode === 'full' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setGalleryMode('full')}
+                  className="rounded-l-none"
+                >
+                  Full Gallery
+                </Button>
+              </div>
             </div>
           </div>
           
@@ -309,96 +341,128 @@ export const FastGalleryMode: React.FC<{
             )}
           </div>
         </div>
-      </div>
+        </div>
+      )}
 
-      {/* Gallery Grid */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {items.map((item, index) => (
-              <div
-                key={item.id}
-                ref={index === items.length - 1 ? lastItemRef : null}
-              >
-                <GalleryCard
-                  item={item}
-                  onClick={handleItemClick}
-                  isSelected={selectedItems.has(item.id)}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {items.map((item, index) => (
-              <Card
-                key={item.id}
-                ref={index === items.length - 1 ? lastItemRef : null}
-                className="p-4 cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => handleItemClick(item)}
-              >
-                <div className="flex gap-4">
-                  <div className="w-24 h-16 bg-gray-100 rounded flex-shrink-0 flex items-center justify-center">
-                    {item.thumbnail ? (
-                      <img
-                        src={item.thumbnail}
-                        alt="Preview"
-                        className="w-full h-full object-cover rounded"
-                      />
-                    ) : (
-                      <Sparkles className="w-6 h-6 text-gray-400" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-sm mb-1 truncate">
-                      {item.prompt}
-                    </h3>
-                    <div className="flex items-center gap-4 text-xs text-gray-500 mb-2">
-                      <span>{item.model}</span>
-                      <span>{item.timestamp.toLocaleDateString()}</span>
-                      {item.metrics?.fileSize && (
-                        <span>{(item.metrics.fileSize / 1024).toFixed(1)}KB</span>
+      {/* Gallery Content - Conditional Rendering */}
+      {galleryMode === 'full' ? (
+        /* Full Gallery Mode - Reuse existing GalleryView component */
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <GalleryView htmlFiles={htmlFiles} />
+        </div>
+      ) : (
+        /* Fast Gallery Mode - Custom grid/list view */
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          {viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {items.map((item, index) => (
+                <div
+                  key={item.id}
+                  ref={index === items.length - 1 ? lastItemRef : null}
+                >
+                  <GalleryCard
+                    item={item}
+                    onClick={handleItemClick}
+                    isSelected={selectedItems.has(item.id)}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {items.map((item, index) => (
+                <Card
+                  key={item.id}
+                  ref={index === items.length - 1 ? lastItemRef : null}
+                  className="p-4 cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => handleItemClick(item)}
+                >
+                  <div className="flex gap-4">
+                    <div className="w-24 h-16 bg-gray-100 rounded flex-shrink-0 overflow-hidden">
+                      {item.htmlContent ? (
+                        <iframe
+                          srcDoc={item.htmlContent}
+                          className="w-full h-full border-0 pointer-events-none rounded"
+                          style={{ transform: 'scale(0.3)', transformOrigin: 'top left', width: '333%', height: '333%' }}
+                          sandbox="allow-scripts"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Sparkles className="w-6 h-6 text-gray-400" />
+                        </div>
                       )}
                     </div>
-                    {item.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {item.tags.slice(0, 5).map((tag) => (
-                          <Badge key={tag} variant="secondary" className="text-xs">
-                            {tag}
-                          </Badge>
-                        ))}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-sm mb-1 truncate">
+                        {item.prompt}
+                      </h3>
+                      <div className="flex items-center gap-4 text-xs text-gray-500 mb-2">
+                        <span>{item.model}</span>
+                        <span>{item.timestamp.toLocaleDateString()}</span>
+                        {item.metrics?.fileSize && (
+                          <span>{(item.metrics.fileSize / 1024).toFixed(1)}KB</span>
+                        )}
                       </div>
-                    )}
+                      {item.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {item.tags.slice(0, 5).map((tag) => (
+                            <Badge key={tag} variant="secondary" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
-        
-        {/* Loading indicator */}
-        {loading && page > 1 && (
-          <div className="flex justify-center py-8">
-            <div className="flex items-center gap-2 text-gray-600">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Loading more...
+                </Card>
+              ))}
             </div>
-          </div>
-        )}
-        
-        {/* No results */}
-        {!loading && items.length === 0 && (
-          <div className="text-center py-12">
-            <Sparkles className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-600 mb-2">
-              No generations found
-            </h3>
-            <p className="text-gray-500">
-              Try adjusting your search or filters
-            </p>
-          </div>
-        )}
-      </div>
+          )}
+          
+          {/* Loading indicator */}
+          {loading && page > 1 && (
+            <div className="flex justify-center py-8">
+              <div className="flex items-center gap-2 text-gray-600">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Loading more...
+              </div>
+            </div>
+          )}
+          
+          {/* No results */}
+          {!loading && items.length === 0 && (
+            <div className="text-center py-12">
+              <Sparkles className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-600 mb-2">
+                No generations found
+              </h3>
+              <p className="text-gray-500">
+                Try adjusting your search or filters
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fullscreen Viewer */}
+      {fullscreenItem && (
+        <FullscreenViewer
+          data={{
+            id: fullscreenItem.id,
+            title: fullscreenItem.prompt,
+            htmlContent: fullscreenItem.htmlContent,
+            metadata: {
+              model: fullscreenItem.model,
+              prompt: fullscreenItem.prompt,
+              timestamp: fullscreenItem.timestamp,
+              tags: fullscreenItem.tags,
+              description: ''
+            }
+          }}
+          isOpen={isFullscreenOpen}
+          onClose={handleCloseFullscreen}
+        />
+      )}
     </div>
   );
 };
