@@ -150,11 +150,14 @@ export const FastGalleryMode: React.FC<{
 }> = ({ fetchGenerations, onItemClick, htmlFiles }) => {
   const [items, setItems] = useState<GenerationItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  
+  // Pagination constants
+  const ITEMS_PER_PAGE = 9;
+  const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
   
   // Fullscreen viewer state
   const [fullscreenData, setFullscreenData] = useState<HtmlFileData | null>(null);
@@ -177,25 +180,14 @@ export const FastGalleryMode: React.FC<{
     setFullscreenData(null);
   }, []);
 
-  const observerRef = useRef<IntersectionObserver>();
-  const lastItemRef = useCallback((node: HTMLDivElement) => {
-    if (loading) return;
-    if (observerRef.current) observerRef.current.disconnect();
-    observerRef.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && hasMore) {
-        setPage(prevPage => prevPage + 1);
-      }
-    });
-    if (node) observerRef.current.observe(node);
-  }, [loading, hasMore]);
+  // Remove infinite scroll functionality
 
-  // Load items
-  const loadItems = useCallback(async (pageNum: number, currentFilters: GalleryFilters, reset = false) => {
+  // Load items for current page
+  const loadItems = useCallback(async (pageNum: number, currentFilters: GalleryFilters) => {
     setLoading(true);
     try {
       const result = await fetchGenerations(pageNum, currentFilters);
-      setItems(prev => reset ? result.items : [...prev, ...result.items]);
-      setHasMore(result.hasMore);
+      setItems(result.items.slice(0, ITEMS_PER_PAGE));
       setTotal(result.total);
     } catch (error) {
       console.error('Failed to load items:', error);
@@ -206,16 +198,14 @@ export const FastGalleryMode: React.FC<{
 
   // Initial load and filter changes
   useEffect(() => {
-    setPage(1);
-    loadItems(1, filters, true);
+    setCurrentPage(1);
+    loadItems(1, filters);
   }, [filters, loadItems]);
 
-  // Load more on page change
+  // Load items when page changes
   useEffect(() => {
-    if (page > 1) {
-      loadItems(page, filters);
-    }
-  }, [page, loadItems, filters]);
+    loadItems(currentPage, filters);
+  }, [currentPage, loadItems, filters]);
 
   // Handle search with debouncing
   const handleSearchChange = useCallback((value: string) => {
@@ -332,14 +322,14 @@ export const FastGalleryMode: React.FC<{
           
           {/* Results summary */}
           <div className="mt-3 text-sm text-gray-600">
-            {loading && page === 1 ? (
+            {loading && currentPage === 1 ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Loading...
               </div>
             ) : (
               <span>
-                Showing {items.length} of {total} generations
+                Showing {items.length} of {total} generations (Page {currentPage} of {totalPages})
                 {filters.search && ` matching "${filters.search}"`}
               </span>
             )}
@@ -358,12 +348,9 @@ export const FastGalleryMode: React.FC<{
         /* Fast Gallery Mode - Custom grid/list view */
         <div className="max-w-7xl mx-auto px-4 py-8">
           {viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {items.map((item, index) => (
-                <div
-                  key={item.id}
-                  ref={index === items.length - 1 ? lastItemRef : null}
-                >
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+              {items.map((item) => (
+                <div key={item.id}>
                   <GalleryCard
                     item={item}
                     onClick={handleItemClick}
@@ -373,16 +360,15 @@ export const FastGalleryMode: React.FC<{
               ))}
             </div>
           ) : (
-            <div className="space-y-4">
-              {items.map((item, index) => (
+            <div className="space-y-6">
+              {items.map((item) => (
                 <Card
                   key={item.id}
-                  ref={index === items.length - 1 ? lastItemRef : null}
-                  className="p-4 cursor-pointer hover:shadow-md transition-shadow"
+                  className="p-6 cursor-pointer hover:shadow-md transition-shadow"
                   onClick={() => handleItemClick(item)}
                 >
-                  <div className="flex gap-4">
-                    <div className="w-24 h-16 bg-gray-100 rounded flex-shrink-0 overflow-hidden">
+                  <div className="flex gap-6">
+                    <div className="w-32 h-20 bg-gray-100 rounded flex-shrink-0 overflow-hidden">
                       {item.htmlContent ? (
                         <iframe
                           srcDoc={item.htmlContent}
@@ -423,12 +409,44 @@ export const FastGalleryMode: React.FC<{
             </div>
           )}
           
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex justify-center items-center gap-4 py-8">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1 || loading}
+                className="flex items-center gap-2"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <span className="text-xs text-gray-500">({total} total)</span>
+              </div>
+              
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages || loading}
+                className="flex items-center gap-2"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
+          
           {/* Loading indicator */}
-          {loading && page > 1 && (
+          {loading && (
             <div className="flex justify-center py-8">
               <div className="flex items-center gap-2 text-gray-600">
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Loading more...
+                Loading...
               </div>
             </div>
           )}
