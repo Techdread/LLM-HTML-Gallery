@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dyson Sphere Construction Simulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            color: #f0f0f0;
+            background-color: #0a0a0a;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            padding: 1rem;
+            text-align: center;
+            background-color: rgba(16, 16, 32, 0.8);
+            border-bottom: 1px solid #1e5799;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        header h1 {
+            font-size: 2.2rem;
+            font-weight: 300;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        header p {
+            font-size: 0.9rem;
+            opacity: 0.7;
+            max-width: 85%;
+            margin: 0 auto;
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        #animation-canvas {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+        }
+
+        .controls-container {
+            width: 300px;
+            background-color: rgba(20, 20, 40, 0.7);
+            padding: 1.5rem;
+            overflow-y: auto;
+            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+        }
+
+        .control-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .control-group h2 {
+            font-size: 1.1rem;
+            font-weight: 400;
+            margin-bottom: 1rem;
+            color: #0e9aa7;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .slider-container {
+            margin-bottom: 1rem;
+        }
+
+        .slider-container label {
+            display: block;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+
+        .slider-container #progress-label {
+            flex: 1;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            background: rgba(142, 187, 211, 0.2);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #0e9aa7;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: #0a7a93;
+        }
+
+        .toggle-toggle {
+            display: inline-block;
+            position: relative;
+            width: 50px;
+            height: 24px;
+        }
+
+        .toggle-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.3);
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: #fff;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.toggle-slider {
+            background-color: #0e9aa7;
+        }
+
+        input:checked+.toggle-slider:before {
+            transform: translateX(26px);
+        }
+
+        .button {
+            background-color: #1c3864;
+            color: #fff;
+            border: none;
+            padding: 0.7rem 1.5rem;
+            font-size: 0.9rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .button:hover {
+            background-color: #0e9aa7;
+            color: #fff;
+        }
+
+        .button.running {
+            background-color: #0e9aa7;
+            width: auto;
+        }
+
+        .button.running:hover {
+            background-color: #0a7a93;
+        }
+
+        .stats-container {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: rgba(14, 105, 163, 0.3);
+            border-radius: 6px;
+            border-left: 3px solid #0e9aa7;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 0.8rem;
+        }
+
+        .stat-row .labeled {
+            font-weight: 500;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 992px) {
+            .main-container {
+                flex-direction: column;
+            }
+
+            .controls-container {
+                width: 100%;
+                max-height: 40vh;
+                flex-shrink: 0;
+                margin-top: 1rem;
+            }
+        }
+
+        .loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0a0a0a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 0.5s;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(237, 243, 249, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #0e9aa7;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Loading screen -->
+    <div class="loading">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <h1>DYSON SPHERE CONSTRUCTION SIMULATOR</h1>
+        <p>Track the progress of harvesting energy from a distant star</p>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- Canvas for Three.js -->
+        <canvas id="animation-canvas"></canvas>
+
+        <!-- Controls Panel -->
+        <div class="controls-container">
+            <!-- Progress Controls -->
+            <div class="control-group">
+                <h2>CONSTRUCTION CONTROLS</h2>
+
+                <div class="slider-container">
+                    <label>
+                        Construction Progress
+                        <span id="progress-label">0%</span>
+                    </label>
+                    <input type="range" id="progress-slider" min="0" max="100" value="0">
+                </div>
+
+                <div>
+                    <button id="start-btn" class="button">START BUILD</button>
+                    <button id="pause-btn" class="button" disabled>PAUSE</button>
+                </div>
+            </div>
+
+            <!-- Solar Collector Controls -->
+            <div class="control-group">
+                <h2>SOLAR COLLECTOR CONTROL</h2>
+
+                <label>
+                    Show Solar Collectors
+                    <div class="toggle-toggle">
+                        <input type="checkbox" id="show-collectors" checked>
+                        <span class="toggle-slider"></span>
+                    </div>
+                </label>
+            </div>
+
+            <!-- Star Appearance Controls -->
+            <div class="control-group">
+                <h2>STAR APPEARANCE</h2>
+
+                <div class="slider-container">
+                    <span>Sunspots Intensity</span>
+                    <input type="range" id="sunspots" min="0" max="1" step="0.01" value="0.5">
+                </div>
+
+                <div class="slider-container">
+                    <span>Corona Brightness</span>
+                    <input type="range" id="corona" min="0" max="1" step="0.01" value="0.7">
+                </div>
+
+                <div class="slider-container">
+                    <span>Star Brightness</span>
+                    <input type="range" id="brightness" min="0.5" max="2" step="0.1" value="1">
+                </div>
+            </div>
+
+            <!-- Animation Settings -->
+            <div class="control-group">
+                <h2>ANIMATION SETTINGS</h2>
+
+                <div class="slider-container">
+                    <span>Orbital Speed</span>
+                    <input type="range" id="orbit-speed" min="0" max="1" step="0.01" value="0.3">
+                </div>
+
+                <div class="slider-container">
+                    <span>Detail Level</span>
+                    <input type="range" id="detail-level" min="0" max="10" step="1" value="5">
+                </div>
+            </div>
+
+            <!-- Statistics Panel -->
+            <div class="stats-container">
+                <h2>CONSTRUCTION STATS</h2>
+                <div class="stat-row">
+                    <span class="labeled">Progress:</span>
+                    <span id="progress-percent">0%</span>
+                </div>
+                <div class="stat-row">
+                    <span class="labeled">Collectors:</span>
+                    <span id="collector-count">0/500</span>
+                </div>
+                <div class="stat-row">
+                    <span class="labeled">Energy Prod:</span>
+                    <span id="energy-production">0 GW</span>
+                </div>
+                <div class="stat-row">
+                    <span class="labeled">Time Left:</span>
+                    <span id="time-left">N/A</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Constants
+        const STAR_RADIUS = 1;
+        const COLLECTOR_COUNT = 500;
+        const ORBITAL_RADIUS = 12;
+
+        // Global variables
+        let scene, camera, renderer, controls;
+        let star, starMesh, coronaMesh;
+        let solarCollectors = [];
+        let sunspotsGeometry, sunspotsMaterial;
+        let clock = new THREE.Clock();
+        let starBrightness = 1;
+        let showSolarCollectors = true;
+        let animationSpeed = 0.03;
+        let lastUpdated = 0;
+        let totalAnimationTime = 1000; // seconds
+        let constructionStartTime = 0;
+
+        // DOM Elements
+        const progressSlider = document.getElementById('progress-slider');
+        const startBtn = document.getElementById('start-btn');
+        const pauseBtn = document.getElementById('pause-btn');
+        const showCollectorsToggle = document.getElementById('show-collectors');
+        const sunspotsSlider = document.getElementById('sunspots');
+        const coronaSlider = document.getElementById('corona');
+        const brightnessSlider = document.getElementById('brightness');
+        const orbitSpeedSlider = document.getElementById('orbit-speed');
+        const detailLevelSlider = document.getElementById('detail-level');
+        const progressLabel = document.getElementById('progress-label');
+        const progressPercent = document.getElementById('progress-percent');
+        const collectorCount = document.getElementById('collector-count');
+        const energyProduction = document.getElementById('energy-production');
+        const timeLeft = document.getElementById('time-left');
+
+        // Initialize the application
+        function init() {
+            // Set up the scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a0a);
+
+            // Set up the camera
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 40;
+
+            // Set up the renderer
+            renderer = new THREE.WebGLRenderer({
+                canvas: document.getElementById('animation-canvas'),
+                antialias: true,
+                alpha: true
+            });
+            renderer.setSize(document.getElementById('animation-canvas').clientWidth, document.getElementById('animation-canvas').clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            // Remove loading screen
+            document.querySelector('.loading').style.opacity = '0';
+
+            // Set up controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 30;
+            controls.maxDistance = 200;
+
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0x333333);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+
+            const pointLight = new THREE.PointLight(0xffffff, 0.7);
+            pointLight.position.set(0, 0, 0);
+            scene.add(pointLight);
+
+            // Create the star
+            createStar();
+
+            // Create solar collectors
+            createSolarCollectors();
+
+            // Animation
+            animate();
+
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+
+            // Control UI listeners
+            progressSlider.addEventListener('input', updateProgress);
+            startBtn.addEventListener('click', startConstruction);
+            pauseBtn.addEventListener('click', pauseConstruction);
+            showCollectorsToggle.addEventListener('change', toggleSolarCollectors);
+
+            sunspotsSlider.addEventListener('input', updateStarAppearance);
+            coronaSlider.addEventListener('input', updateCorona);
+            brightnessSlider.addEventListener('input', updateBrightness);
+            orbitSpeedSlider.addEventListener('input', updateOrbitSpeed);
+            detailLevelSlider.addEventListener('input', updateDetailLevel);
+
+            // Hide loader once everything is ready
+            setTimeout(() => {
+                document.querySelector('.loading').style.display = 'none';
+            }, 1000);
+        }
+
+        // Create the star with sunspots and corona effect
+        function createStar() {
+            // Create the star geometry and material
+            const starGeometry = new THREE.SphereGeometry(STAR_RADIUS, 64, 64);
+
+            // Star surface material - includes sunspots
+            const starMaterial = new THREE.MeshPhongMaterial({
+                color: 0xffff55,
+                shininess: 10,
+                transparent: true
+            });
+
+            starMesh = new THREE.Mesh(starGeometry, starMaterial);
+            scene.add(starMesh);
+
+            // Create sunspots using texture coordinates to mask areas with spots
+            const spotsGeometry = new THREE.BufferGeometry();
+            const positions = [];
+
+            // Set positions for sunspots (random across the surface)
+            for (let i = 0; i < 300; i++) {
+                const phi = Math.acos((Math.random() * 2 - 1));
+                const theta = Math.random() * Math.PI * 2;
+                const u = (phi - Math.PI / 2) / (Math.PI / 2) * 0.5 + 0.25; // Map phi (0 to π) to 0.25 to 0.75 for UV
+                const v = theta / (Math.PI * 2) * 0.5 + 0.25; // Map theta (0 to 2π) to 0.25 to 0.75 for UV
+
+                positions.push(
+                    Math.cos(phi) * Math.sin(theta) * STAR_RADIUS,
+                    Math.sin(phi) * STAR_RADIUS,
+                    Math.cos(phi) * Math.cos(theta) * STAR_RADIUS,
+                    u,           // s
+                    v            // t
+                );
+            }
+
+            spotsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 5));
+
+            // Create render targets for sunspots (just representing brightness variation)
+            const spotsMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uvScale: { value: new THREE.Vector2(1, 1) }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec2 uvScale;
+                    varying vec2 vUv;
+                    void main() {
+                        // Create spots pattern
+                        float spotIntensity = smoothstep(0.05, 0.15, abs(sin(vUv.x * 10.0 + vUv.y * 20.0) + sin(vUv.x * 20.0 + vUv.y * 15.0)));
+                        gl_FragColor = vec4(0.0, 0.0, 0.0, mix(0.8, 0.9, spotIntensity));
+                    }
+                `
+            });
+
+            const spotsMesh = new THREE.LineSegments(spotsGeometry, new THREE.LineBasicMaterial({
+                color: 0x000000
+            }));
+            sunspotsMaterial = spotsMaterial;
+            //star.add(spotsMesh);
+
+            // Create corona effect as an add-on to the star light
+            const coronaGeometry = new THREE.SphereGeometry(STAR_RADIUS * 2, 32, 32);
+            const coronaMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.3
+            });
+            coronaMesh = new THREE.Mesh(coronaGeometry, coronaMaterial);
+            starMesh.add(coronaMesh);
+
+            // Add star glow effect using bloom or custom shader if we have time
+        }
+
+        // Create solar collectors
+        function createSolarCollectors() {
+            for (let i = 0; i < COLLECTOR_COUNT; i++) {
+                const angle = (i / COLLECTOR_COUNT) * Math.PI * 2;
+
+                // Randomize position slightly for a more natural look
+                const radius = ORBITAL_RADIUS + (Math.random() * 1.5 - 0.75);
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                const y = (Math.random() * 2 - 1) + 1; // Slight variation in height
+
+                const collector = createSolarCollector(i, x, y, z);
+                solarCollectors.push(collector);
+                scene.add(collector);
+            }
+        }
+
+        // Create a solar collector panel with orbital effect
+        function createSolarCollector(index, x, y, z) {
+            // Collector plate
+            const geometry = new THREE.PlaneGeometry(2, 1.5, 1, 1);
+            // Orient the panel to face toward the star
+            geometry.rotateX(Math.PI / 2);
+
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x3498db,
+                shininess: 60,
+                transparent: true,
+                opacity: 0.9
+            });
+
+            const collector = new THREE.Mesh(geometry, material);
+            collector.position.set(x, y, z);
+            collector.userData = { index };
+            collector.visible = showSolarCollectors;
+
+            // Add some details to the collector
+            const panelMaterial = new THREE.MeshPhongMaterial({
+                color: 0x0f75bc,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.2
+            });
+
+            const detailGeometry = new THREE.BoxGeometry(0.1, 1.5, 2.5);
+            const detail = new THREE.Mesh(detailGeometry, panelMaterial);
+            detail.position.y = 0;
+            detail.userData = { group: "detail", index };
+            collector.add(detail);
+
+            // Add grid lines
+            const depthLines = createPatternLines(2, Math.PI / 2, Math.PI / 2);
+            const widthLines = createPatternLines(1.5, -Math.PI / 2, Math.PI / 2);
+
+            const frontLinesGeometry = new THREE.BufferGeometry();
+            frontLinesGeometry.setFromPoints([
+                new THREE.Vector3(-1, 0, 0), new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(-1, 1.5, 0), new THREE.Vector3(1, 1.5, 0)
+            ]);
+
+            const linesMaterial = new THREE.LineBasicMaterial({ color: 0x0d6efd, transparent: true, opacity: 0.4 });
+            const frontLines = new THREE.LineSegments(frontLinesGeometry, linesMaterial);
+
+            const backLinesGeometry = new THREE.BufferGeometry();
+            backLinesGeometry.setFromPoints([
+                new THREE.Vector3(-1, 0, 0), new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(-1, 1.5, 0), new THREE.Vector3(1, 1.5, 0)
+            ]);
+            const backLines = new THREE.LineSegments(backLinesGeometry, linesMaterial);
+
+            collector.add(frontLines);
+            collector.add(backLines);
+
+            // Store orbital data
+            collector.userData.orbitData = {
+                angle: Math.random() * Math.PI * 2,
+                speed: Math.random() * 0.01 + 0.005,
+                radius: 1,
+                phase: Math.random() * Math.PI * 2
+            };
+
+            return collector;
+        }
+
+        // Create a simple checkerboard pattern for Panel details
+        function createPatternLines(width, rotation1, rotation2) {
+            const startAngle1 = rotation1;
+            const startAngle2 = rotation1 + Math.PI / 2;
+            const endAngle1 = rotation2;
+            const endAngle2 = rotation2 + Math.PI / 2;
+
+            const points = [];
+            const widthSeg = 10;
+            const heightSeg = 5;
+
+            for (let i = -widthSeg / 2 + 0.5; i <= widthSeg / 2 - 0.5; i++) {
+                points.push(new THREE.Vector3(-width / 2, i / widthSeg * 1.5, -0.01));
+                points.push(new THREE.Vector3(width / 2, i / widthSeg * 1.5, -0.01));
+            }
+
+            for (let i = -heightSeg / 2; i <= heightSeg / 2; i++) {
+                points.push(new THREE.Vector3(i / heightSeg * width, -width / 2, -0.01));
+                points.push(new THREE.Vector3(i / heightSeg * width, width / 2, -0.01));
+            }
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const colors = new Float32Array(geometry.attributes.position.count * 3).fill(0xd1e9ff, 0, 1);
+
+            const material = new THREE.LineBasicMaterial({
+                color: 0xd1e9ff,
+                transparent: true,
+                opacity: 0.3
+            });
+
+            return new THREE.LineSegments(geometry, material);
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsedTime = clock.getElapsedTime();
+            const progressBar = parseFloat(progressSlider.value) / 100;
+
+            updateStarAppearance(elapsedTime);
+            updateSolarCollectors(elapsedTime, progressBar);
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Update star appearance based on controls
+        function updateStarAppearance(elapsedTime) {
+            // Update sunspots based on slider value
+            if (sunspotsMaterial) {
+                const scale = 1 + (parseFloat(sunspotsSlider.value) * 0.5);
+                sunspotsMaterial.uniforms.uvScale.value.set(scale, scale);
+            }
+
+            // Update corona brightness
+            coronaMesh.material.opacity = parseFloat(coronaSlider.value);
+            coronaMesh.material.opacity = Math.min(0.7, parseFloat(coronaSlider.value));
+
+            // Update star brightness using point light
+            const lights = scene.children.filter(child => child.isLight);
+            if (lights.length > 0) {
+                lights[0].intensity = starBrightness * (0.3 + 0.2 * Math.sin(elapsedTime * 0.3));
+            }
+
+            // Update star color and brightness based on overall slider
+            if (starMesh && starMesh.material) {
+                starMesh.material.emissiveIntensity = starBrightness * 0.2 + 0.1;
+            }
+        }
+
+        // Update solar collectors behavior
+        function updateSolarCollectors(elapsedTime, progress) {
+            // Only let constructed collectors move if construction is active
+            const constructionRate = 0.5 + parseFloat(orbitSpeedSlider.value) * 2;
+            const timeSinceLastUpdate = elapsedTime - lastUpdated;
+
+            for (let i = 0; i < solarCollectors.length; i++) {
+                const collector = solarCollectors[i];
+
+                if (collector.visible) {
+                    // Rotate the collector slightly to simulate orbital movement
+                    if (constructionStartTime > 0) {
+                        const angle = elapsedTime * 0.05 + (i / COLLECTOR_COUNT) * Math.PI;
+                        collector.rotation.y = angle * constructionRate;
+
+                        // Update progress for drawn panels
+                        if ('orbitData' in collector.userData && progressSlider.value === '100') {
+                            collector.userData.orbitData.angle += collector.userData.orbitData.speed * timeSinceLastUpdate;
+                            if (collector.userData.orbitData.angle > Math.PI * 2) {
+                                collector.userData.orbitData.angle -= Math.PI * 2;
+                            }
+
+                            // Update panel position for orbital motion
+                            const radius = ORBITAL_RADIUS + (Math.random() * 1.5 - 0.75);
+                            const updateX = radius * Math.cos(collector.userData.orbitData.angle);
+                            const updateZ = radius * Math.sin(collector.userData.orbitData.angle);
+                            collector.position.x = updateX;
+                            collector.position.z = updateZ;
+                        }
+                    }
+                }
+            }
+
+            lastUpdated = elapsedTime;
+        }
+
+        // Construction control functions
+        function startConstruction() {
+            constructionStartTime = clock.getElapsedTime();
+            startBtn.classList.add('running');
+            startBtn.disabled = true;
+            pauseBtn.disabled = false;
+        }
+
+        function pauseConstruction() {
+            constructionStartTime = 0;
+            startBtn.classList.remove('running');
+            startBtn.disabled = false;
+            pauseBtn.disabled = true;
+        }
+
+        function updateProgress() {
+            // When progress slider is moved, update the progress bar
+            const progress = parseFloat(progressSlider.value);
+            progressLabel.textContent = progress + '%';
+            progressPercent.textContent = progress + '%';
+
+            // Calculate progress of construction (in terms of collectors built)
+            const visibleCount = Math.floor(COLLECTOR_COUNT * (progress / 100));
+
+            // Change visibility for each collector (if necessary)
+            let changedCount = 0;
+            for (let i = 0; i < solarCollectors.length; i++) {
+                const collector = solarCollectors[i];
+                if (progress >= 100 || i < visibleCount) {
+                    if (!collector.visible) {
+                        collector.visible = true;
+                        changedCount++;
+                    }
+                } else if (collector.visible) {
+                    collector.visible = false;
+                    changedCount++;
+                }
+            }
+
+            // Update stats panel
+            collectorCount.textContent = visibleCount + '/' + COLLECTOR_COUNT;
+
+            // Calculate energy production (based on solar collectors built)
+            const energyValue = visibleCount * 2.5;
+            energyProduction.textContent = energyValue.toFixed(0) + ' GW';
+
+            // Calculate time to completion if construction is active
+            if (constructionStartTime > 0) {
+                const initialTime = clock.getElapsedTime();
+                const totalCollectors = COLLECTOR_COUNT;
+                const timePerCollector = initialTime / totalAnimationTime; // Simple estimation
+
+                const timeRemaining = timePerCollector * (totalCollectors - visibleCount);
+                const minutes = Math.floor(timeRemaining / 60);
+                const seconds = Math.floor(timeRemaining % 60);
+
+                timeLeft.textContent = `~ ${minutes}m ${seconds}s`;
+            }
+        }
+
+        function toggleSolarCollectors() {
+            showSolarCollectors = showCollectorsToggle.checked;
+
+            for (let i = 0; i < solarCollectors.length; i++) {
+                solarCollectors[i].visible = showSolarCollectors;
+            }
+        }
+
+        // UI control handlers
+        function updateCorona() {
+            // Update corona effect based on slide value
+            coronaSlider.value = parseFloat(coronaSlider.value);
+            updateStarAppearance();
+        }
+
+        function updateBrightness() {
+            starBrightness = parseFloat(brightnessSlider.value);
+            updateStarAppearance();
+        }
+
+        function updateOrbitSpeed() {
+            // Update the base orbit speed
+            animationSpeed = parseFloat(orbitSpeedSlider.value);
+        }
+
+        function updateDetailLevel() {
+            // This affects proxy details (can be expanded later for visibility and quality)
+        }
+
+        // Handle window resizing
+        function onWindowResize() {
+            camera.aspect = document.getElementById('animation-canvas').clientWidth / document.getElementById('animation-canvas').clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(document.getElementById('animation-canvas').clientWidth, document.getElementById('animation-canvas').clientHeight);
+        }
+
+        // Initialize the application when window loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+
+</html>

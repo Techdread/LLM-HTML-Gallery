@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>ASCII Sphere</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            /* Hide scrollbars */
+            background-color: black;
+        }
+
+        canvas {
+            display: block;
+            /* Prevents extra space below the canvas */
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        let sphereData = []; // Array to hold the ASCII characters and their positions
+        let numChars = 64; // Number of ASCII characters to use
+        let radius = 100; // Radius of the sphere
+        let rotationSpeed = 0.01; // Rotation speed in radians per frame
+        let colorMap = {}; // Map to store the color of each ASCII character
+
+        function setup() {
+            createCanvas(600, 600);
+            sphereData = [];
+
+            // Generate ASCII characters and their positions
+            for (let i = 0; i < numChars; i++) {
+                let x = random(-radius, radius);
+                let y = random(-radius, radius);
+                let z = random(-radius, radius);
+                let charCode = int(random(32, 126)); // ASCII range
+                let charValue = String.fromCharCode(charCode);
+
+                // Calculate distance from origin for sphere
+                let distance = Math.sqrt(x * x + y * y + z * z);
+
+                // Determine color based on distance
+                let colorValue = map(distance, 0, radius, 0, 255); // Scale distance to 0-255
+                colorMap[charValue] = color(colorValue, colorValue, colorValue); // Pure white
+
+                // Add the character to the sphereData array
+                sphereData.push({
+                    x: x,
+                    y: y,
+                    z: z,
+                    char: charValue,
+                    color: colorMap[charValue]
+                });
+            }
+
+            // Initialize the sphere
+            for (let i = 0; i < sphereData.length; i++) {
+                //This is redundant, but it ensures the data is properly initialized.
+                sphereData[i].char = sphereData[i].char;
+                sphereData[i].color = sphereData[i].color;
+            }
+        }
+
+        function draw() {
+            background(0); // Black background
+
+            // Rotate the sphere
+            rotateZ(rotationSpeed);
+
+            // Draw the sphere
+            for (let i = 0; i < sphereData.length; i++) {
+                let x = sphereData[i].x;
+                let y = sphereData[i].y;
+                let z = sphereData[i].z;
+
+                // Calculate the distance from the origin
+                let distance = Math.sqrt(x * x + y * y + z * z);
+
+                // Draw the ASCII character
+                fill(sphereData[i].color);
+                textAlign(CENTER, CENTER);
+                text(sphereData[i].char, x, y);
+            }
+        }
+    </script>
+</body>
+
+</html>

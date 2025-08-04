@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravity Well Simulation | Spacetime Curvature</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #0f1721, #1a2639);
+            color: #e0f7ff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            text-align: center;
+            padding: 1.2rem;
+            background: rgba(10, 20, 35, 0.8);
+            border-bottom: 1px solid rgba(0, 195, 255, 0.3);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 10px rgba(0, 210, 255, 0.3);
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.8;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #info-panel {
+            width: 320px;
+            background: rgba(15, 30, 45, 0.85);
+            border-left: 1px solid rgba(0, 195, 255, 0.3);
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            backdrop-filter: blur(5px);
+        }
+
+        .panel-section {
+            background: rgba(20, 40, 60, 0.6);
+            border-radius: 12px;
+            padding: 1.2rem;
+            border: 1px solid rgba(0, 195, 255, 0.2);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .panel-title {
+            font-size: 1.3rem;
+            margin-bottom: 1.2rem;
+            color: #00d2ff;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .panel-title i {
+            font-size: 1.5rem;
+        }
+
+        .control-group {
+            margin-bottom: 1.2rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.95rem;
+            color: #a0d2ff;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            background: rgba(0, 100, 150, 0.3);
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #00d2ff;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(0, 210, 255, 0.6);
+        }
+
+        .value-display {
+            text-align: right;
+            font-size: 0.9rem;
+            color: #00e5ff;
+            margin-top: 0.3rem;
+        }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.8rem;
+            margin-top: 0.5rem;
+        }
+
+        button {
+            background: linear-gradient(135deg, #0066cc, #00aaff);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 0.8rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        button:hover {
+            background: linear-gradient(135deg, #0088ff, #00ccff);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 100, 255, 0.4);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        button.clear {
+            background: linear-gradient(135deg, #cc3300, #ff5500);
+        }
+
+        button.clear:hover {
+            background: linear-gradient(135deg, #ff4400, #ff8844);
+        }
+
+        .mode-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-left: 8px;
+        }
+
+        .mode-indicator.place {
+            background: #00ffaa;
+            box-shadow: 0 0 8px #00ffaa;
+        }
+
+        .mode-indicator.launch {
+            background: #ff7700;
+            box-shadow: 0 0 8px #ff7700;
+        }
+
+        .instructions {
+            font-size: 0.9rem;
+            line-height: 1.6;
+            color: #a0cfff;
+        }
+
+        .instructions ul {
+            padding-left: 1.2rem;
+            margin: 0.8rem 0;
+        }
+
+        .instructions li {
+            margin-bottom: 0.6rem;
+        }
+
+        .legend {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 1rem;
+        }
+
+        .legend-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-bottom: 0.3rem;
+        }
+
+        .particle-trail {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9rem;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+
+        .particle-count {
+            font-weight: bold;
+            color: #ffcc00;
+        }
+
+        @media (max-width: 900px) {
+            .container {
+                flex-direction: column;
+            }
+
+            #info-panel {
+                width: 100%;
+                height: 300px;
+                border-left: none;
+                border-top: 1px solid rgba(0, 195, 255, 0.3);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Spacetime Curvature Simulator</h1>
+        <p class="subtitle">Visualize how massive objects warp spacetime and bend the trajectories of particles</p>
+    </header>
+
+    <div class="container">
+        <div id="canvas-container">
+            <div class="particle-trail">Active Particles: <span class="particle-count">0</span></div>
+        </div>
+
+        <div id="info-panel">
+            <div class="panel-section">
+                <h2 class="panel-title"><i class="icon">🌌</i> Simulation Controls</h2>
+
+                <div class="control-group">
+                    <label>Current Mode:
+                        <span id="mode-indicator" class="mode-indicator place"></span>
+                        <span id="mode-text">Placing Massive Objects</span>
+                    </label>
+                    <div class="btn-group">
+                        <button id="mode-place">Place Objects</button>
+                        <button id="mode-launch">Launch Particles</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label for="mass-slider">Object Mass: <span id="mass-value">10</span> Solar Masses</label>
+                    <input type="range" id="mass-slider" min="1" max="50" value="10">
+                </div>
+
+                <div class="control-group">
+                    <label for="velocity-slider">Particle Velocity: <span id="velocity-value">0.8</span> c</label>
+                    <input type="range" id="velocity-slider" min="0.1" max="1.5" value="0.8" step="0.05">
+                </div>
+
+                <div class="btn-group">
+                    <button id="reset-btn">Reset Simulation</button>
+                    <button id="clear-btn" class="clear">Clear Particles</button>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h2 class="panel-title"><i class="icon">🪐</i> How to Use</h2>
+                <div class="instructions">
+                    <ul>
+                        <li><strong>Place massive objects:</strong> Switch to "Place Objects" mode and click anywhere on
+                            the grid to create stars or black holes</li>
+                        <li><strong>Launch particles:</strong> Switch to "Launch Particles" mode and click to launch
+                            particles with the selected velocity</li>
+                        <li><strong>Adjust mass:</strong> Use the slider to change the mass of objects before placing
+                            them</li>
+                        <li><strong>Adjust velocity:</strong> Control how fast particles travel through spacetime</li>
+                        <li><strong>Camera controls:</strong> Orbit: drag to rotate • Pan: right-click drag • Zoom:
+                            scroll wheel</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h2 class="panel-title"><i class="icon">🔭</i> Visualization Legend</h2>
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ffaa00;"></div>
+                        <span>Stars</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ff3300;"></div>
+                        <span>Black Holes</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #00ccff;"></div>
+                        <span>Particles</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h2 class="panel-title"><i class="icon">⚛️</i> Physics Explained</h2>
+                <div class="instructions">
+                    <p>This simulation visualizes how massive objects curve spacetime according to Einstein's theory of
+                        general relativity. Particles follow geodesics (straight paths in curved spacetime) which appear
+                        as curved trajectories to observers.</p>
+                    <p>The grid deformation represents the curvature of spacetime, with greater mass creating deeper
+                        gravity wells.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Main Three.js variables
+        let scene, camera, renderer, controls;
+        let grid, massiveObjects = [], particles = [];
+        let raycaster, mouse;
+
+        // Simulation parameters
+        let simulationMode = 'place'; // 'place' or 'launch'
+        let objectMass = 10;
+        let particleVelocity = 0.8;
+        let particleCount = 0;
+
+        // Initialize the simulation
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a1423);
+            scene.fog = new THREE.Fog(0x0a1423, 50, 150);
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 15, 30);
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight - 80);
+            renderer.shadowMap.enabled = true;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // Add OrbitControls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0x333333);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 15, 10);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            // Create the spacetime grid
+            createGrid();
+
+            // Initialize raycaster for mouse interactions
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('click', onCanvasClick);
+
+            // Initialize UI controls
+            initControls();
+
+            // Start animation loop
+            animate();
+        }
+
+        // Create the spacetime grid
+        function createGrid() {
+            const gridSize = 40;
+            const divisions = 40;
+
+            // Create geometry
+            const geometry = new THREE.PlaneGeometry(gridSize, gridSize, divisions, divisions);
+
+            // Create material with vertex displacement
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x1a5a7a,
+                wireframe: false,
+                transparent: true,
+                opacity: 0.9,
+                side: THREE.DoubleSide,
+                emissive: 0x004466,
+                shininess: 80,
+                flatShading: true
+            });
+
+            // Create grid mesh
+            grid = new THREE.Mesh(geometry, material);
+            grid.rotation.x = -Math.PI / 2;
+            grid.position.y = -1;
+            grid.receiveShadow = true;
+            scene.add(grid);
+
+            // Add a subtle wireframe overlay
+            const wireframe = new THREE.LineSegments(
+                new THREE.WireframeGeometry(geometry),
+                new THREE.LineBasicMaterial({ color: 0x00aaff, opacity: 0.2, transparent: true })
+            );
+            wireframe.rotation.x = -Math.PI / 2;
+            wireframe.position.y = -0.9;
+            scene.add(wireframe);
+        }
+
+        // Add a massive object (star or black hole)
+        function addMassiveObject(position, mass) {
+            const isBlackHole = mass > 25;
+            const color = isBlackHole ? 0xff3300 : 0xffaa00;
+            const radius = Math.min(1.5 + mass / 10, 5);
+
+            // Create sphere geometry
+            const geometry = new THREE.SphereGeometry(radius, 32, 32);
+            const material = new THREE.MeshPhongMaterial({
+                color: color,
+                emissive: isBlackHole ? 0x661100 : 0x553300,
+                shininess: 80
+            });
+
+            const object = new THREE.Mesh(geometry, material);
+            object.position.copy(position);
+            object.position.y = -1;
+            object.mass = mass;
+            object.isBlackHole = isBlackHole;
+            object.castShadow = true;
+            object.receiveShadow = true;
+
+            scene.add(object);
+            massiveObjects.push(object);
+
+            // Add gravitational field effect
+            addGravityField(position, mass);
+
+            // Deform grid around the object
+            deformGridAroundObject(position, mass);
+        }
+
+        // Add a visual representation of the gravitational field
+        function addGravityField(position, mass) {
+            const intensity = Math.min(1, mass / 20);
+            const rings = 8;
+            const maxRadius = 10 + mass * 1.5;
+
+            for (let i = 0; i < rings; i++) {
+                const radius = (i + 1) * maxRadius / rings;
+                const ringGeometry = new THREE.RingGeometry(radius - 0.2, radius, 32);
+                const ringMaterial = new THREE.MeshBasicMaterial({
+                    color: i === rings - 1 ? 0xff5500 : 0x00aaff,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.15 * (1 - i / rings) * intensity
+                });
+
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                ring.position.copy(position);
+                ring.position.y = -0.5;
+                ring.rotation.x = Math.PI / 2;
+                scene.add(ring);
+            }
+        }
+
+        // Deform grid around a massive object
+        function deformGridAroundObject(position, mass) {
+            const gridGeometry = grid.geometry;
+            const vertices = gridGeometry.attributes.position.array;
+            const strength = mass * 0.15;
+            const range = 10 + mass * 1.2;
+
+            for (let i = 0; i < vertices.length; i += 3) {
+                const x = vertices[i];
+                const z = vertices[i + 2];
+
+                const dx = x - position.x;
+                const dz = z - position.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+
+                if (distance < range) {
+                    // Calculate displacement (inverse square law)
+                    const displacement = strength / (1 + distance);
+                    vertices[i + 1] = -displacement;
+                }
+            }
+
+            gridGeometry.attributes.position.needsUpdate = true;
+            gridGeometry.computeVertexNormals();
+        }
+
+        // Launch a particle from a position
+        function launchParticle(position) {
+            // Create particle geometry
+            const geometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x00ccff,
+                emissive: 0x0044aa
+            });
+
+            const particle = new THREE.Mesh(geometry, material);
+            particle.position.copy(position);
+            particle.position.y = 0;
+            particle.velocity = new THREE.Vector3(
+                (Math.random() - 0.5) * particleVelocity,
+                0,
+                (Math.random() - 0.5) * particleVelocity
+            );
+            particle.trail = [];
+
+            scene.add(particle);
+            particles.push(particle);
+
+            // Create trail
+            const trailMaterial = new THREE.LineBasicMaterial({
+                color: 0x00aaff,
+                transparent: true,
+                opacity: 0.7
+            });
+
+            const trailGeometry = new THREE.BufferGeometry();
+            const trail = new THREE.Line(trailGeometry, trailMaterial);
+            scene.add(trail);
+            particle.trailLine = trail;
+
+            particleCount++;
+            updateParticleCount();
+        }
+
+        // Update particle count display
+        function updateParticleCount() {
+            document.querySelector('.particle-count').textContent = particleCount;
+        }
+
+        // Handle canvas click
+        function onCanvasClick(event) {
+            // Calculate mouse position in normalized device coordinates
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            // Update the raycaster
+            raycaster.setFromCamera(mouse, camera);
+
+            // Find intersections with the grid
+            const intersects = raycaster.intersectObject(grid);
+
+            if (intersects.length > 0) {
+                const point = intersects[0].point;
+
+                if (simulationMode === 'place') {
+                    // Place a massive object
+                    addMassiveObject(point, objectMass);
+                } else {
+                    // Launch a particle
+                    launchParticle(point);
+                }
+            }
+        }
+
+        // Initialize UI controls
+        function initControls() {
+            // Mode switching
+            document.getElementById('mode-place').addEventListener('click', () => {
+                simulationMode = 'place';
+                updateModeUI();
+            });
+
+            document.getElementById('mode-launch').addEventListener('click', () => {
+                simulationMode = 'launch';
+                updateModeUI();
+            });
+
+            // Mass slider
+            const massSlider = document.getElementById('mass-slider');
+            const massValue = document.getElementById('mass-value');
+
+            massSlider.addEventListener('input', () => {
+                objectMass = parseInt(massSlider.value);
+                massValue.textContent = objectMass;
+            });
+
+            // Velocity slider
+            const velocitySlider = document.getElementById('velocity-slider');
+            const velocityValue = document.getElementById('velocity-value');
+
+            velocitySlider.addEventListener('input', () => {
+                particleVelocity = parseFloat(velocitySlider.value);
+                velocityValue.textContent = particleVelocity.toFixed(2);
+            });
+
+            // Reset button
+            document.getElementById('reset-btn').addEventListener('click', resetSimulation);
+
+            // Clear particles button
+            document.getElementById('clear-btn').addEventListener('click', clearParticles);
+
+            // Initial UI update
+            updateModeUI();
+        }
+
+        // Update mode UI
+        function updateModeUI() {
+            const modeIndicator = document.getElementById('mode-indicator');
+            const modeText = document.getElementById('mode-text');
+
+            if (simulationMode === 'place') {
+                modeIndicator.className = 'mode-indicator place';
+                modeText.textContent = 'Placing Massive Objects';
+            } else {
+                modeIndicator.className = 'mode-indicator launch';
+                modeText.textContent = 'Launching Particles';
+            }
+        }
+
+        // Reset simulation
+        function resetSimulation() {
+            // Remove all massive objects
+            massiveObjects.forEach(obj => scene.remove(obj));
+            massiveObjects = [];
+
+            // Remove all particles
+            clearParticles();
+
+            // Reset grid
+            const gridGeometry = grid.geometry;
+            const vertices = gridGeometry.attributes.position.array;
+
+            for (let i = 0; i < vertices.length; i += 3) {
+                vertices[i + 1] = -1;
+            }
+
+            gridGeometry.attributes.position.needsUpdate = true;
+            gridGeometry.computeVertexNormals();
+        }
+
+        // Clear all particles
+        function clearParticles() {
+            particles.forEach(particle => {
+                scene.remove(particle);
+                scene.remove(particle.trailLine);
+            });
+
+            particles = [];
+            particleCount = 0;
+            updateParticleCount();
+        }
+
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight - 80);
+        }
+
+        // Physics update for particles
+        function updatePhysics() {
+            particles.forEach(particle => {
+                // Apply gravity from massive objects
+                massiveObjects.forEach(obj => {
+                    const direction = new THREE.Vector3().subVectors(obj.position, particle.position);
+                    const distanceSq = direction.lengthSq();
+
+                    if (distanceSq > 0.1) {
+                        const force = obj.mass * 0.0005 / distanceSq;
+                        direction.normalize().multiplyScalar(force);
+                        particle.velocity.add(direction);
+                    }
+                });
+
+                // Update position
+                particle.position.add(particle.velocity);
+
+                // Add current position to trail
+                particle.trail.push(particle.position.clone());
+
+                // Keep trail at a reasonable length
+                if (particle.trail.length > 100) {
+                    particle.trail.shift();
+                }
+
+                // Update trail geometry
+                const trailGeometry = particle.trailLine.geometry;
+                const positions = new Float32Array(particle.trail.length * 3);
+
+                particle.trail.forEach((pos, i) => {
+                    positions[i * 3] = pos.x;
+                    positions[i * 3 + 1] = pos.y + 0.1;
+                    positions[i * 3 + 2] = pos.z;
+                });
+
+                trailGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                trailGeometry.attributes.position.needsUpdate = true;
+            });
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Update physics
+            updatePhysics();
+
+            // Update controls
+            controls.update();
+
+            // Render scene
+            renderer.render(scene, camera);
+        }
+
+        // Initialize the simulation when the page loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+
+</html>

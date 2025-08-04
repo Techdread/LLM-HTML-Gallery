@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Sphere Rotation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            border: 2px solid #333;
+            box-shadow: 0 0 20px rgba(0, 150, 255, 0.7);
+        }
+
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            color: #aaa;
+            font-size: 14px;
+            text-align: center;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 8px;
+            border-top: 1px solid #333;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="instructions">
+        Rotate the sphere with mouse movement | Click to reset rotation
+    </div>
+    <script>
+        let points = [];
+        const numPoints = 800;
+        const radius = 150;
+        const cameraDistance = 250;
+        let angleX = 0;
+        let angleY = 0;
+        let rotSpeed = 0.007;
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            generatePoints();
+            noStroke();
+            textAlign(CENTER, CENTER);
+        }
+
+        function generatePoints() {
+            points = [];
+            for (let i = 0; i < numPoints; i++) {
+                const theta = random(TWO_PI);
+                const phi = acos(2 * random() - 1); // Uniform distribution on sphere
+                const x = radius * sin(phi) * cos(theta);
+                const y = radius * sin(phi) * sin(theta);
+                const z = radius * cos(phi);
+                points.push({ x, y, z });
+            }
+        }
+
+        function draw() {
+            background(0);
+
+            // Apply mouse rotation
+            angleX += (mouseY - height / 2) * 0.001;
+            angleY += (mouseX - width / 2) * 0.001;
+
+            for (let i = 0; i < points.length; i++) {
+                const p = points[i];
+
+                // Rotate around Y axis
+                let x1 = p.x * cos(angleY) - p.z * sin(angleY);
+                let z1 = p.x * sin(angleY) + p.z * cos(angleY);
+
+                // Rotate around X axis
+                let y2 = p.y * cos(angleX) - z1 * sin(angleX);
+                let z2 = p.y * sin(angleX) + z1 * cos(angleX);
+
+                // Skip points behind camera (z2 >= 0)
+                if (z2 >= 0) continue;
+
+                // Calculate depth-based color
+                const d = cameraDistance + z2; // Distance from camera to point
+                const minDepth = cameraDistance - radius;
+                const maxDepth = cameraDistance + radius;
+                let norm = (d - minDepth) / (maxDepth - minDepth);
+                norm = constrain(norm, 0, 1);
+
+                const brightness = 255 * (1 - norm);
+
+                // Perspective projection
+                const scale = cameraDistance / (-z2); // Scale based on distance from camera
+                const xScreen = x1 * scale + width / 2;
+                const yScreen = y2 * scale + height / 2;
+
+                // Draw the ASCII character with calculated color
+                fill(brightness, brightness, brightness);
+                textSize(8);
+                text(randomDigit(), xScreen, yScreen);
+            }
+
+            // Reset rotation when clicked
+            if (mouseIsPressed) {
+                angleX = 0;
+                angleY = 0;
+            }
+        }
+
+        function randomDigit() {
+            return floor(random(10));
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+        }
+    </script>
+</body>
+
+</html>

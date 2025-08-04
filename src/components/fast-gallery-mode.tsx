@@ -119,7 +119,7 @@ const GalleryCard: React.FC<{
           )}
         </div>
         
-        {item.tags.length > 0 && (
+        {Array.isArray(item.tags) && item.tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {item.tags.slice(0, 3).map((tag) => (
               <Badge key={tag} variant="secondary" className="text-xs">
@@ -407,7 +407,7 @@ export const FastGalleryMode: React.FC<{
                           <span>{(item.metrics.fileSize / 1024).toFixed(1)}KB</span>
                         )}
                       </div>
-                      {item.tags.length > 0 && (
+                      {Array.isArray(item.tags) && item.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1">
                           {item.tags.slice(0, 5).map((tag) => (
                             <Badge key={tag} variant="secondary" className="text-xs">

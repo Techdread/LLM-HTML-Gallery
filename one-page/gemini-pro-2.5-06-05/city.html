@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Futuristic Cityscape Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 15px 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 8px;
+            color: #fff;
+            border: 1px solid #444;
+        }
+
+        #ui-panel h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+            border-bottom: 1px solid #555;
+            padding-bottom: 5px;
+        }
+
+        .control-group {
+            margin-bottom: 10px;
+        }
+
+        .control-group label {
+            display: inline-block;
+            width: 120px;
+        }
+
+        .control-group input {
+            width: 80px;
+        }
+
+        #apply-button {
+            width: 100%;
+            padding: 8px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+            font-size: 1em;
+        }
+
+        #apply-button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui-panel">
+        <h2>City Controls</h2>
+        <div class="control-group">
+            <label for="grid-size">Grid Size:</label>
+            <input type="number" id="grid-size" value="10" min="5" max="20">
+        </div>
+        <div class="control-group">
+            <label for="city-size">City Size:</label>
+            <input type="number" id="city-size" value="25" min="10" max="50">
+        </div>
+        <div class="control-group">
+            <label for="vehicle-count">Vehicles:</label>
+            <input type="number" id="vehicle-count" value="50" min="0" max="200">
+        </div>
+        <button id="apply-button">Regenerate City</button>
+    </div>
+
+    <!-- Import map for three.js and its addons -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+      }
+    }
+  </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+
+        let scene, camera, renderer, controls, clock;
+        let sun, ambientLight;
+        let cityObjects = [];
+        let vehicles = [];
+        let streetLights = [];
+
+        // --- CONFIG ---
+        const DAY_DURATION = 120; // seconds
+
+        init();
+        animate();
+
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.fog = new THREE.Fog(0x000000, 1, 1000);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.set(100, 150, 200);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2.1; // Don't go below ground
+            controls.target.set(0, 20, 0);
+
+            // Clock
+            clock = new THREE.Clock();
+
+            // Lighting
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+            scene.add(ambientLight);
+
+            sun = new THREE.DirectionalLight(0xffffff, 2.5);
+            sun.castShadow = true;
+            sun.shadow.camera.left = -400;
+            sun.shadow.camera.right = 400;
+            sun.shadow.camera.top = 400;
+            sun.shadow.camera.bottom = -400;
+            sun.shadow.camera.near = 1;
+            sun.shadow.camera.far = 1500;
+            sun.shadow.mapSize.width = 2048;
+            sun.shadow.mapSize.height = 2048;
+            scene.add(sun);
+            scene.add(sun.target);
+
+            // Initial Scene Generation
+            generateScene();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize, false);
+            document.getElementById('apply-button').addEventListener('click', generateScene);
+        }
+
+        function clearScene() {
+            cityObjects.forEach(obj => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                    if (Array.isArray(obj.material)) {
+                        obj.material.forEach(m => m.dispose());
+                    } else {
+                        obj.material.dispose();
+                    }
+                }
+                scene.remove(obj);
+            });
+            cityObjects = [];
+
+            vehicles.forEach(v => scene.remove(v.mesh));
+            vehicles = [];
+
+            streetLights.forEach(light => scene.remove(light));
+            streetLights = [];
+        }
+
+        function generateScene() {
+            clearScene();
+
+            const gridSize = parseInt(document.getElementById('grid-size').value);
+            const citySize = parseInt(document.getElementById('city-size').value);
+            const vehicleCount = parseInt(document.getElementById('vehicle-count').value);
+            const worldSize = gridSize * citySize;
+
+            // Ground
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 1 });
+            const groundGeo = new THREE.PlaneGeometry(worldSize, worldSize);
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+            cityObjects.push(ground);
+
+            generateCity(gridSize, citySize);
+            generateVehicles(vehicleCount, worldSize);
+        }
+
+        function generateCity(gridSize, citySize) {
+            const noise = new ImprovedNoise();
+            const buildingMaterials = [
+                new THREE.MeshStandardMaterial({ color: 0x505060, roughness: 0.8, metalness: 0.2 }),
+                new THREE.MeshStandardMaterial({ color: 0x303040, roughness: 0.7, metalness: 0.3 }),
+                new THREE.MeshStandardMaterial({ color: 0x707080, roughness: 0.6, metalness: 0.1 }),
+            ];
+            const windowMaterial = new THREE.MeshStandardMaterial({
+                color: 0x000000,
+                emissive: 0xFFFF00,
+                emissiveIntensity: 0
+            });
+
+            const halfWorldSize = (gridSize * citySize) / 2;
+
+            for (let i = 0; i < citySize; i++) {
+                for (let j = 0; j < citySize; j++) {
+                    const x = i * gridSize - halfWorldSize;
+                    const z = j * gridSize - halfWorldSize;
+                    const n = noise.noise(i / 20, j / 20, 0);
+
+                    if (n > 0.6) { // Water/Beach
+                        const waterMat = new THREE.MeshStandardMaterial({ color: 0x0055aa, roughness: 0.1, metalness: 0.5 });
+                        const waterGeo = new THREE.BoxGeometry(gridSize * 0.95, 1, gridSize * 0.95);
+                        const water = new THREE.Mesh(waterGeo, waterMat);
+                        water.position.set(x, -0.5, z);
+                        scene.add(water);
+                        cityObjects.push(water);
+                    } else if (n > 0.5) { // Park
+                        const parkMat = new THREE.MeshStandardMaterial({ color: 0x228B22 });
+                        const parkGeo = new THREE.BoxGeometry(gridSize * 0.95, 1, gridSize * 0.95);
+                        const park = new THREE.Mesh(parkGeo, parkMat);
+                        park.position.set(x, -0.5, z);
+                        park.receiveShadow = true;
+                        scene.add(park);
+                        cityObjects.push(park);
+                    } else if (Math.random() > 0.2) { // Building
+                        const height = (5 + Math.pow(Math.random(), 2) * 15) * gridSize;
+                        const width = gridSize * (0.6 + Math.random() * 0.3);
+                        const depth = gridSize * (0.6 + Math.random() * 0.3);
+
+                        const buildingGeo = new THREE.BoxGeometry(width, height, depth);
+                        const material = buildingMaterials[Math.floor(Math.random() * buildingMaterials.length)];
+                        const building = new THREE.Mesh(buildingGeo, material);
+
+                        building.position.set(x, height / 2, z);
+                        building.castShadow = true;
+                        building.receiveShadow = true;
+                        scene.add(building);
+                        cityObjects.push(building);
+
+                        // Add emissive windows for night effect
+                        const windowGeo = new THREE.PlaneGeometry(width * 1.01, height * 1.01);
+                        const windows1 = new THREE.Mesh(windowGeo, windowMaterial);
+                        windows1.position.set(x, height / 2, z + depth / 2 * 1.01);
+                        scene.add(windows1);
+                        cityObjects.push(windows1);
+
+                        const windows2 = new THREE.Mesh(windowGeo, windowMaterial);
+                        windows2.rotation.y = Math.PI;
+                        windows2.position.set(x, height / 2, z - depth / 2 * 1.01);
+                        scene.add(windows2);
+                        cityObjects.push(windows2);
+
+                        // Streetlights at intersections
+                        if (i % 4 === 0 && j % 4 === 0) {
+                            const light = new THREE.PointLight(0xffaa00, 0, 100, 2); // Initially off
+                            light.position.set(x + gridSize / 2, 10, z + gridSize / 2);
+                            scene.add(light);
+                            streetLights.push(light);
+                            cityObjects.push(light);
+                        }
+                    }
+                }
+            }
+        }
+
+        function generateVehicles(count, worldSize) {
+            const vehicleGeo = new THREE.CapsuleGeometry(1, 4, 4, 8);
+            const vehicleMat = new THREE.MeshStandardMaterial({ color: 0xff0000, metalness: 0.8, roughness: 0.2 });
+
+            for (let i = 0; i < count; i++) {
+                const mesh = new THREE.Mesh(vehicleGeo, vehicleMat);
+
+                // Headlight
+                const headLight = new THREE.SpotLight(0xffffff, 20, 150, Math.PI / 8, 0.5, 2);
+                headLight.position.set(0, 0, 2);
+                mesh.add(headLight);
+                mesh.add(headLight.target);
+                headLight.target.position.set(0, 0, 10);
+
+                const pathPoints = [];
+                const startPoint = new THREE.Vector3(
+                    (Math.random() - 0.5) * worldSize,
+                    Math.random() * 200 + 50,
+                    (Math.random() - 0.5) * worldSize
+                );
+                pathPoints.push(startPoint);
+
+                for (let j = 0; j < 5; j++) {
+                    pathPoints.push(
+                        new THREE.Vector3(
+                            (Math.random() - 0.5) * worldSize,
+                            Math.random() * 200 + 50,
+                            (Math.random() - 0.5) * worldSize
+                        )
+                    );
+                }
+                pathPoints.push(startPoint); // Loop back
+
+                const curve = new THREE.CatmullRomCurve3(pathPoints);
+                const speed = Math.random() * 0.05 + 0.02;
+                const offset = Math.random();
+
+                vehicles.push({ mesh, curve, speed, offset, headLight });
+                scene.add(mesh);
+            }
+        }
+
+        function updateDayNightCycle(time) {
+            const cycle = (time % DAY_DURATION) / DAY_DURATION; // 0 to 1
+            const sunAngle = cycle * Math.PI * 2;
+
+            // Sun position
+            sun.position.set(
+                Math.cos(sunAngle) * 500,
+                Math.sin(sunAngle) * 500,
+                Math.cos(sunAngle) * 200 - 200 // slight offset for more interesting shadows
+            );
+            sun.target.position.set(0, 0, 0);
+
+            // Day/Night determination
+            const isDay = sun.position.y > 0;
+            const isNight = sun.position.y < -50;
+            const transitionFactor = Math.smoothstep(sun.position.y, -50, 50); // 1 for day, 0 for night
+
+            // Sun color and intensity
+            const sunHighColor = new THREE.Color(0xffffff);
+            const sunLowColor = new THREE.Color(0xff8c00); // orange
+            sun.color.lerpColors(sunLowColor, sunHighColor, Math.max(0, sun.position.y / 500));
+            sun.intensity = transitionFactor * 2.5 + 0.1;
+
+            // Ambient light
+            ambientLight.intensity = transitionFactor * 0.4 + 0.05;
+
+            // Sky color (background and fog)
+            const daySky = new THREE.Color(0x87ceeb);
+            const nightSky = new THREE.Color(0x00001a);
+            const duskSky = new THREE.Color(0xff4500);
+
+            let currentSky;
+            if (sun.position.y > 50) currentSky = daySky;
+            else if (sun.position.y > -50) currentSky = duskSky;
+            else currentSky = nightSky;
+
+            let targetSky = isDay ? (sun.position.y < 50 ? duskSky : daySky) : nightSky;
+            let lerpFactor = isDay ? (1 - Math.abs(sun.position.y - 50) / 50) : (1 - Math.abs(sun.position.y + 50) / 50);
+            lerpFactor = Math.min(1, Math.max(0, lerpFactor));
+
+            const finalSky = new THREE.Color().lerpColors(currentSky, targetSky, lerpFactor);
+            scene.background = finalSky;
+            scene.fog.color.copy(finalSky);
+
+            // Streetlights and window lights
+            const lightIntensity = isNight ? 100 : 0;
+            const emissiveIntensity = isNight ? 1 : 0;
+
+            streetLights.forEach(light => light.intensity = lightIntensity);
+
+            cityObjects.forEach(obj => {
+                if (obj.material && obj.material.emissive) {
+                    obj.material.emissiveIntensity = emissiveIntensity;
+                }
+            });
+
+            // Vehicle headlights
+            vehicles.forEach(v => v.headLight.visible = isNight);
+        }
+
+        function updateVehicles(time) {
+            vehicles.forEach(v => {
+                const t = ((time * v.speed) + v.offset) % 1;
+                v.curve.getPointAt(t, v.mesh.position);
+
+                // Make vehicle look ahead
+                const tangent = v.curve.getTangentAt(t).normalize();
+                const lookAtPosition = new THREE.Vector3().copy(v.mesh.position).add(tangent);
+                v.mesh.lookAt(lookAtPosition);
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+
+            controls.update();
+
+            updateDayNightCycle(time);
+            updateVehicles(time);
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+
+</html>

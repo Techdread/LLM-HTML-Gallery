@@ -1,0 +1,16 @@
+{
+  "title": "ASCII Sphere",
+  "htmlContent": "<!DOCTYPE html>\r\n<html lang=\"en\">\r\n\r\n<head>\r\n    <meta charset=\"UTF-8\">\r\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\r\n    <title>ASCII Sphere</title>\r\n    <script src=\"https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js\"></script>\r\n    <style>\r\n        body {\r\n            display: flex;\r\n            justify-content: center;\r\n            align-items: center;\r\n            height: 100vh;\r\n            margin: 0;\r\n            background-color: black;\r\n            color: white;\r\n            font-family: monospace;\r\n        }\r\n    </style>\r\n</head>\r\n\r\n<body>\r\n    <script>\r\n        let angleX = 0;\r\n        let angleY = 0;\r\n        const radius = 150;\r\n        const numPoints = 1000;\r\n\r\n        function setup() {\r\n            createCanvas(windowWidth, windowHeight, WEBGL);\r\n            angleMode(DEGREES);\r\n        }\r\n\r\n        function draw() {\r\n            background(0);\r\n            rotateX(angleX);\r\n            rotateY(angleY);\r\n            noFill();\r\n            stroke(255);\r\n\r\n            for (let i = 0; i < numPoints; i++) {\r\n                let theta = map(i, 0, numPoints, 0, 360);\r\n                let phi = map(i, 0, numPoints, 0, 180);\r\n                let x = radius * sin(phi) * cos(theta);\r\n                let y = radius * sin(phi) * sin(theta);\r\n                let z = radius * cos(phi);\r\n\r\n                let d = dist(0, 0, 0, x, y, z);\r\n                let brightness = map(d, 0, radius * 2, 255, 0);\r\n                stroke(brightness);\r\n                point(x, y, z);\r\n\r\n                // Draw ASCII number\r\n                push();\r\n                translate(x, y, z);\r\n                textSize(10);\r\n                textAlign(CENTER, CENTER);\r\n                text(i % 10, 0, 0);\r\n                pop();\r\n            }\r\n\r\n            angleX += 0.5;\r\n            angleY += 0.5;\r\n        }\r\n    </script>\r\n</body>\r\n\r\n</html>",
+  "id": "ascii-devstral-small-2507",
+  "metadata": {
+    "prompt": "Imported from one-page directory",
+    "tags": [
+      "WebGL",
+      "Shaders",
+      "Astronomy"
+    ],
+    "timestamp": "2025-08-04T21:59:57.851Z",
+    "model": "devstral-small-2507",
+    "description": "An interactive web application featuring webgl, shaders, astronomy."
+  }
+}

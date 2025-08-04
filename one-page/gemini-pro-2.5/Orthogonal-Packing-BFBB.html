@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orthogonal Rectangular Packing (BFBB + Three.js)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        #controls {
+            padding: 1rem;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            max-height: 40vh;
+            /* Limit control panel height */
+            overflow-y: auto;
+            /* Add scroll if needed */
+        }
+
+        #visualization {
+            flex-grow: 1;
+            position: relative;
+            /* Needed for overlay */
+            min-height: 60vh;
+            /* Ensure visualization area has height */
+        }
+
+        #messageBox {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 100;
+            display: none;
+            /* Hidden by default */
+            text-align: center;
+        }
+
+        /* Simple Priority Queue Styling (Optional) */
+        .priority-queue-item {
+            border: 1px solid #eee;
+            padding: 2px 4px;
+            margin-bottom: 2px;
+            font-size: 0.8em;
+            background-color: #fafafa;
+        }
+
+        /* Style the button */
+        button {
+            background-color: #4CAF50;
+            /* Green */
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background-color 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        textarea {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 8px;
+            width: 100%;
+            min-height: 80px;
+            font-family: monospace;
+        }
+
+        label {
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <div id="controls" class="space-y-4">
+            <h1 class="text-xl font-bold text-gray-800">Orthogonal Rectangular Packing</h1>
+            <div>
+                <label for="piecesInput">Input Pieces (JSON format: [{id, l, w, b}, ...]):</label>
+                <textarea id="piecesInput" placeholder='[
+  {"id": "A", "l": 5, "w": 4, "b": 1},
+  {"id": "B", "l": 3, "w": 6, "b": 1},
+  {"id": "C", "l": 4, "w": 4, "b": 1}
+]'>[
+  {"id": "R1", "l": 4, "w": 3, "b": 1},
+  {"id": "R2", "l": 2, "w": 5, "b": 1},
+  {"id": "R3", "l": 3, "w": 3, "b": 1}
+]</textarea>
+            </div>
+            <div>
+                <label for="maxNodes">Max Nodes to Explore (Performance Limit):</label>
+                <input type="number" id="maxNodes" value="5000" class="border rounded p-1 w-32">
+            </div>
+            <button id="startButton">Start Packing</button>
+            <div id="output" class="text-sm text-gray-700 space-y-1">
+                <p>Status: Ready</p>
+                <p>Optimal Area Found: N/A</p>
+                <p>Dimensions (L x W): N/A</p>
+                <p>Nodes Explored: 0</p>
+                <p>Time Taken: 0 ms</p>
+            </div>
+        </div>
+        <div id="visualization">
+            <div id="messageBox"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Three.js Setup ---
+        let scene, camera, renderer, controls, mainContainer, vizContainer;
+        let packedGroup = new THREE.Group(); // Group to hold packed items
+
+        function initThreeJS() {
+            vizContainer = document.getElementById('visualization');
+            if (!vizContainer) {
+                console.error("Visualization container not found!");
+                return;
+            }
+
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf3f4f6); // Match body background
+
+            // Camera
+            const aspect = vizContainer.clientWidth / vizContainer.clientHeight;
+            // Adjust camera position based on expected packing size - start further out
+            camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+            camera.position.set(10, 10, 20); // Positioned to look down slightly at XY plane
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(vizContainer.clientWidth, vizContainer.clientHeight);
+            vizContainer.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
+
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // Smooths camera movement
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.maxPolarAngle = Math.PI / 2; // Prevent looking from below
+
+            // Add packed group to scene
+            scene.add(packedGroup);
+
+            // Handle Resize
+            window.addEventListener('resize', onWindowResize, false);
+
+            // Start animation loop
+            animate();
+        }
+
+        function onWindowResize() {
+            if (!vizContainer || !renderer || !camera) return;
+            camera.aspect = vizContainer.clientWidth / vizContainer.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(vizContainer.clientWidth, vizContainer.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // Only required if controls.enableDamping or autoRotate are set to true
+            renderer.render(scene, camera);
+        }
+
+        function clearVisualization() {
+            // Remove all children from the packedGroup
+            while (packedGroup.children.length > 0) {
+                packedGroup.remove(packedGroup.children[0]);
+            }
+            // Optionally remove bounding box if drawn
+            const existingBox = scene.getObjectByName("boundingBox");
+            if (existingBox) {
+                scene.remove(existingBox);
+            }
+        }
+
+        // Function to generate distinct colors
+        function getRandomColor(seed) {
+            // Simple pseudo-random color based on a seed string (like piece ID)
+            let hash = 0;
+            for (let i = 0; i < seed.length; i++) {
+                hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+                hash = hash & hash; // Convert to 32bit integer
+            }
+            // Generate color components - avoid very dark/light colors
+            const r = (hash & 0xFF0000) >> 16;
+            const g = (hash & 0x00FF00) >> 8;
+            const b = hash & 0x0000FF;
+            // Ensure some brightness
+            const brightnessFactor = 0.5;
+            const finalR = Math.min(255, Math.max(50, Math.floor(r * brightnessFactor + 128 * (1 - brightnessFactor))));
+            const finalG = Math.min(255, Math.max(50, Math.floor(g * brightnessFactor + 128 * (1 - brightnessFactor))));
+            const finalB = Math.min(255, Math.max(50, Math.floor(b * brightnessFactor + 128 * (1 - brightnessFactor))));
+
+            return new THREE.Color(`rgb(${finalR}, ${finalG}, ${finalB})`);
+        }
+
+
+        // --- Packing Node Tree ---
+        // Represents the structure of a packing (how pieces are combined)
+        class PackingNode {
+            constructor({ isLeaf = false, piece = null, children = null, buildType = null, l = 0, w = 0, x = 0, y = 0 }) {
+                this.isLeaf = isLeaf; // boolean: true if this is an original piece
+                this.piece = piece;   // Original Piece object {id, l, w} (if leaf)
+                this.children = children; // [PackingNode, PackingNode] (if internal node)
+                this.buildType = buildType; // 'horizontal' or 'vertical' (if internal node)
+                this.l = l; // length (x-dimension) of this node's bounding box
+                this.w = w; // width (y-dimension) of this node's bounding box
+                this.x = x; // x-position relative to parent (or absolute if root)
+                this.y = y; // y-position relative to parent (or absolute if root)
+                this.area = this.l * this.w;
+            }
+        }
+
+        // --- RPacking State (for BFBB Algorithm) ---
+        // Represents a state (a potential packing) in the search space
+        class RPacking {
+            constructor({ node, pieceCounts, totalPieceCounts }) {
+                this.node = node; // Root PackingNode of the layout tree
+                this.l = node.l;  // Overall length
+                this.w = node.w;  // Overall width
+                this.G = this.l * this.w; // Gross area of the bounding box
+                this.pieceCounts = pieceCounts; // Map { piece_id: count } of pieces *in this packing*
+                this.totalPieceCounts = totalPieceCounts; // Map { piece_id: count } of *all* target pieces
+
+                // Calculate g (sum of areas of pieces included)
+                this.g = 0;
+                for (const pieceId in this.pieceCounts) {
+                    const pieceInfo = this.findPieceInfo(pieceId); // Find original dimensions
+                    if (pieceInfo) {
+                        this.g += pieceInfo.l * pieceInfo.w * this.pieceCounts[pieceId];
+                    } else {
+                        console.warn(`Piece info not found for ID: ${pieceId} during g calculation`);
+                    }
+                }
+
+                this.c = this.G - this.g; // Waste
+
+                // Calculate remaining counts
+                this.remainingCounts = { ...this.totalPieceCounts };
+                for (const pieceId in this.pieceCounts) {
+                    this.remainingCounts[pieceId] -= this.pieceCounts[pieceId];
+                }
+
+                // Check if terminal (all pieces included)
+                this.isTerminal = Object.values(this.remainingCounts).every(count => count === 0);
+
+                // Calculate h' (lower bound estimate for remaining pieces' area)
+                this.h_prime = 0;
+                for (const pieceId in this.remainingCounts) {
+                    if (this.remainingCounts[pieceId] > 0) {
+                        const pieceInfo = this.findPieceInfo(pieceId);
+                        if (pieceInfo) {
+                            this.h_prime += pieceInfo.l * pieceInfo.w * this.remainingCounts[pieceId];
+                        } else {
+                            console.warn(`Piece info not found for ID: ${pieceId} during h' calculation`);
+                        }
+                    }
+                }
+
+                // Calculate f' (lower bound estimate for the total area)
+                this.f_prime = this.G + this.h_prime;
+            }
+
+            // Helper to find original piece dimensions (assumes piecesData is accessible)
+            findPieceInfo(pieceId) {
+                // piecesData should be available in the scope where RPacking is used
+                return piecesData.find(p => p.id === pieceId);
+            }
+
+            // Generate a unique key for this packing state based on dimensions and piece counts
+            getKey() {
+                const sortedCounts = Object.entries(this.pieceCounts)
+                    .sort(([idA], [idB]) => idA.localeCompare(idB))
+                    .map(([id, count]) => `${id}:${count}`)
+                    .join(',');
+                // Using dimensions and counts should be reasonably unique for non-rotated orthogonal packing
+                return `L${this.l}W${this.w}_C[${sortedCounts}]`;
+            }
+        }
+
+        // --- Simple Priority Queue ---
+        class PriorityQueue {
+            constructor() {
+                this.items = [];
+            }
+
+            enqueue(item, priority) {
+                this.items.push({ item, priority });
+                this.items.sort((a, b) => a.priority - b.priority); // Simple sort, inefficient for large queues
+            }
+
+            dequeue() {
+                if (this.isEmpty()) {
+                    return null;
+                }
+                return this.items.shift().item; // Remove and return the item with the lowest priority
+            }
+
+            peek() {
+                if (this.isEmpty()) {
+                    return null;
+                }
+                return this.items[0].item;
+            }
+
+            isEmpty() {
+                return this.items.length === 0;
+            }
+
+            size() {
+                return this.items.length;
+            }
+
+            // For debugging: get top N items
+            getTopN(n) {
+                return this.items.slice(0, n);
+            }
+        }
+
+
+        // --- BFBB Algorithm ---
+        let piecesData = []; // To store parsed input pieces {id, l, w, b}
+        let allPieceInstances = []; // Expanded list of individual pieces {id, l, w, instanceId}
+        let totalPieceCounts = {}; // Target counts {id: b}
+        let nodesExplored = 0;
+        let maxNodesToExplore = 5000; // Performance limit
+
+        function combinePieceCounts(counts1, counts2) {
+            const combined = { ...counts1 };
+            for (const pieceId in counts2) {
+                combined[pieceId] = (combined[pieceId] || 0) + counts2[pieceId];
+            }
+            return combined;
+        }
+
+        function checkDemandConstraints(combinedCounts, totalCounts) {
+            for (const pieceId in combinedCounts) {
+                if (combinedCounts[pieceId] > (totalCounts[pieceId] || 0)) {
+                    return false; // Exceeded demand for this piece type
+                }
+            }
+            return true; // Constraints met
+        }
+
+        // --- Build Functions ---
+        function buildHorizontal(rpack1, rpack2) {
+            const combinedCounts = combinePieceCounts(rpack1.pieceCounts, rpack2.pieceCounts);
+            if (!checkDemandConstraints(combinedCounts, totalPieceCounts)) {
+                return null; // Invalid combination
+            }
+
+            const newL = rpack1.l + rpack2.l;
+            const newW = Math.max(rpack1.w, rpack2.w);
+
+            // Create the new layout node
+            // Place rpack1 at (0,0) relative to the new node's origin
+            // Place rpack2 at (rpack1.l, 0) relative to the new node's origin
+            const newNode = new PackingNode({
+                isLeaf: false,
+                children: [rpack1.node, rpack2.node], // Order matters for relative positioning
+                buildType: 'horizontal',
+                l: newL,
+                w: newW,
+                x: 0, // Root node has 0,0 absolute position initially
+                y: 0
+            });
+            // Adjust children's relative positions (might not be strictly needed if traversal calculates absolute)
+            rpack1.node.x = 0;
+            rpack1.node.y = 0;
+            rpack2.node.x = rpack1.l;
+            rpack2.node.y = 0;
+
+
+            return new RPacking({
+                node: newNode,
+                pieceCounts: combinedCounts,
+                totalPieceCounts: totalPieceCounts
+            });
+        }
+
+        function buildVertical(rpack1, rpack2) {
+            const combinedCounts = combinePieceCounts(rpack1.pieceCounts, rpack2.pieceCounts);
+            if (!checkDemandConstraints(combinedCounts, totalPieceCounts)) {
+                return null; // Invalid combination
+            }
+
+            const newL = Math.max(rpack1.l, rpack2.l);
+            const newW = rpack1.w + rpack2.w;
+
+            // Create the new layout node
+            // Place rpack1 at (0,0) relative to the new node's origin
+            // Place rpack2 at (0, rpack1.w) relative to the new node's origin
+            const newNode = new PackingNode({
+                isLeaf: false,
+                children: [rpack1.node, rpack2.node], // Order matters
+                buildType: 'vertical',
+                l: newL,
+                w: newW,
+                x: 0,
+                y: 0
+            });
+            // Adjust children's relative positions
+            rpack1.node.x = 0;
+            rpack1.node.y = 0;
+            rpack2.node.x = 0;
+            rpack2.node.y = rpack1.w;
+
+
+            return new RPacking({
+                node: newNode,
+                pieceCounts: combinedCounts,
+                totalPieceCounts: totalPieceCounts
+            });
+        }
+
+        // --- Main BFBB Function ---
+        function bestFirstBranchAndBound() {
+            nodesExplored = 0;
+            const startTime = performance.now();
+
+            const E1 = new PriorityQueue(); // Open list (subproblems to explore)
+            const E2 = new Map(); // Closed list {key: RPacking} (explored subproblems) - Use Map for quick lookup
+
+            let Opt = Infinity; // Best total area found so far
+            let bestTerminalPacking = null;
+
+            // 1. Initialization
+            allPieceInstances.forEach(piece => {
+                const initialNode = new PackingNode({
+                    isLeaf: true,
+                    piece: piece, // Store the specific instance info if needed, or just type
+                    l: piece.l,
+                    w: piece.w,
+                    x: 0,
+                    y: 0
+                });
+                const initialCounts = { [piece.id]: 1 };
+                const initialPacking = new RPacking({
+                    node: initialNode,
+                    pieceCounts: initialCounts,
+                    totalPieceCounts: totalPieceCounts
+                });
+                // Enqueue initial pieces only if their f_prime is potentially useful (though f_prime includes h')
+                E1.enqueue(initialPacking, initialPacking.f_prime);
+                // Don't add to E2 yet
+            });
+
+            if (E1.isEmpty()) {
+                updateStatus("No pieces to pack.", 0, 0);
+                return null;
+            }
+
+            updateStatus("Running...", nodesExplored, performance.now() - startTime);
+
+            // 2. Main Loop
+            while (!E1.isEmpty()) {
+                const R = E1.dequeue(); // Get packing with lowest f'
+
+                // Performance Cutoff
+                nodesExplored++;
+                if (nodesExplored > maxNodesToExplore) {
+                    console.warn(`Reached max node limit (${maxNodesToExplore}). Stopping search.`);
+                    showMessage(`Search stopped: Reached max node limit (${maxNodesToExplore}). Result might be suboptimal.`);
+                    break;
+                }
+
+                // Pruning: If current best estimate is already worse than Opt, skip
+                // (Also handles the termination condition Opt - f_min <= 0)
+                if (R.f_prime >= Opt) {
+                    continue; // Don't explore this path further
+                }
+
+                // Avoid re-exploring identical states (based on key)
+                const rKey = R.getKey();
+                if (E2.has(rKey) && E2.get(rKey).f_prime <= R.f_prime) {
+                    continue; // Already found a state as good or better
+                }
+                E2.set(rKey, R); // Add/Update explored state
+
+                // Update Debug UI (Optional, can slow things down)
+                // if (nodesExplored % 50 === 0) {
+                //     updateDebugQueue(E1);
+                //     updateStatus("Running...", nodesExplored, performance.now() - startTime, Opt);
+                // }
+
+
+                // Check if Terminal
+                if (R.isTerminal) {
+                    if (R.G < Opt) {
+                        Opt = R.G;
+                        bestTerminalPacking = R;
+                        console.log(`Found new best terminal packing: Area = ${Opt}, L=${R.l}, W=${R.w}`);
+                        // Update Opt immediately to help prune other branches
+                        updateStatus("Running... (New best found)", nodesExplored, performance.now() - startTime, Opt, R.l, R.w);
+                    }
+                    // Continue searching even after finding a terminal packing,
+                    // as other branches might yield a better one.
+                    continue; // No need to expand a terminal node
+                }
+
+
+                // 3. Expansion: Generate Successors (Combine R with elements in E2)
+                // The paper says "combine R with elements of E2 (including R)"
+                // This implies combining R with *all* previously explored states.
+                // Let's iterate through E2 values.
+
+                const e2Values = Array.from(E2.values()); // Get all explored packings
+
+                e2Values.forEach(R_prev => {
+                    // Try Horizontal Build (R_prev on left, R on right)
+                    const H1 = buildHorizontal(R_prev, R);
+                    if (H1 && H1.f_prime < Opt) {
+                        const h1Key = H1.getKey();
+                        if (!E2.has(h1Key) || E2.get(h1Key).f_prime > H1.f_prime) {
+                            E1.enqueue(H1, H1.f_prime);
+                        }
+                    }
+                    // Try Horizontal Build (R on left, R_prev on right)
+                    const H2 = buildHorizontal(R, R_prev);
+                    if (H2 && H2.f_prime < Opt) {
+                        const h2Key = H2.getKey();
+                        if (!E2.has(h2Key) || E2.get(h2Key).f_prime > H2.f_prime) {
+                            E1.enqueue(H2, H2.f_prime);
+                        }
+                    }
+
+                    // Try Vertical Build (R_prev on bottom, R on top)
+                    const V1 = buildVertical(R_prev, R);
+                    if (V1 && V1.f_prime < Opt) {
+                        const v1Key = V1.getKey();
+                        if (!E2.has(v1Key) || E2.get(v1Key).f_prime > V1.f_prime) {
+                            E1.enqueue(V1, V1.f_prime);
+                        }
+                    }
+                    // Try Vertical Build (R on bottom, R_prev on top)
+                    const V2 = buildVertical(R, R_prev);
+                    if (V2 && V2.f_prime < Opt) {
+                        const v2Key = V2.getKey();
+                        if (!E2.has(v2Key) || E2.get(v2Key).f_prime > V2.f_prime) {
+                            E1.enqueue(V2, V2.f_prime);
+                        }
+                    }
+                });
+
+            } // End while loop
+
+            const endTime = performance.now();
+            const duration = endTime - startTime;
+
+            if (bestTerminalPacking) {
+                updateStatus(`Finished. Optimal Area: ${Opt}`, nodesExplored, duration, Opt, bestTerminalPacking.l, bestTerminalPacking.w);
+                console.log(`Optimal Packing Found: Area=${Opt}, L=${bestTerminalPacking.l}, W=${bestTerminalPacking.w}`);
+                return bestTerminalPacking;
+            } else {
+                let finalMessage = "Finished. No feasible packing found.";
+                if (nodesExplored >= maxNodesToExplore) {
+                    finalMessage = `Finished (Max nodes reached). No feasible packing found within limit.`;
+                }
+                updateStatus(finalMessage, nodesExplored, duration);
+                console.log("No feasible packing found.");
+                showMessage(finalMessage);
+                return null;
+            }
+        }
+
+
+        // --- Visualization Drawing ---
+        function drawFinalPacking(terminalPacking) {
+            clearVisualization();
+            if (!terminalPacking) return;
+
+            const rootNode = terminalPacking.node;
+            const finalWidth = rootNode.l;
+            const finalHeight = rootNode.w;
+
+            // Center the packing visually
+            const offsetX = -finalWidth / 2;
+            const offsetY = -finalHeight / 2;
+
+            // Recursive function to traverse the tree and draw leaf nodes (pieces)
+            function drawNode(node, currentX, currentY) {
+                if (node.isLeaf) {
+                    const piece = node.piece;
+                    const geometry = new THREE.PlaneGeometry(piece.l, piece.w);
+                    const material = new THREE.MeshLambertMaterial({
+                        color: getRandomColor(piece.id), // Color by piece type ID
+                        side: THREE.DoubleSide
+                    });
+                    const mesh = new THREE.Mesh(geometry, material);
+
+                    // Calculate center position for the plane
+                    const posX = currentX + piece.l / 2 + offsetX;
+                    const posY = currentY + piece.w / 2 + offsetY;
+                    mesh.position.set(posX, posY, 0); // Place on XY plane
+
+                    // Add outline for clarity
+                    const edges = new THREE.EdgesGeometry(geometry);
+                    const lineMaterial = new THREE.LineBasicMaterial({ color: 0x333333, linewidth: 2 }); // Thicker line
+                    const lineSegments = new THREE.LineSegments(edges, lineMaterial);
+                    mesh.add(lineSegments); // Add outline as child of mesh
+
+                    packedGroup.add(mesh);
+                } else {
+                    // Recursively draw children based on build type
+                    const [child1, child2] = node.children;
+                    if (node.buildType === 'horizontal') {
+                        // Child1 is at (currentX, currentY)
+                        // Child2 is at (currentX + child1.l, currentY)
+                        drawNode(child1, currentX, currentY);
+                        drawNode(child2, currentX + child1.l, currentY);
+                    } else if (node.buildType === 'vertical') {
+                        // Child1 is at (currentX, currentY)
+                        // Child2 is at (currentX, currentY + child1.w)
+                        drawNode(child1, currentX, currentY);
+                        drawNode(child2, currentX, currentY + child1.w);
+                    }
+                }
+            }
+
+            // Start drawing from the root node at logical origin (0,0)
+            drawNode(rootNode, 0, 0);
+
+
+            // Draw bounding box outline for the final packing
+            const boxGeom = new THREE.PlaneGeometry(finalWidth, finalHeight);
+            const boxEdges = new THREE.EdgesGeometry(boxGeom);
+            const boxLineMat = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 3 });
+            const boxLine = new THREE.LineSegments(boxEdges, boxLineMat);
+            boxLine.position.set(offsetX + finalWidth / 2, offsetY + finalHeight / 2, -0.01); // Slightly behind pieces
+            boxLine.name = "boundingBox";
+            scene.add(boxLine);
+
+
+            // Adjust camera to view the packing
+            const maxSize = Math.max(finalWidth, finalHeight);
+            const distance = maxSize * 1.5; // Adjust multiplier as needed
+            camera.position.set(0, 0, distance);
+            camera.lookAt(0, 0, 0);
+            controls.target.set(0, 0, 0); // Ensure controls focus on the center
+            controls.update();
+
+            showMessage(`Packing complete! Area: ${terminalPacking.G.toFixed(2)}`);
+
+        }
+
+        // --- UI Interaction ---
+        const piecesInput = document.getElementById('piecesInput');
+        const startButton = document.getElementById('startButton');
+        const outputDiv = document.getElementById('output');
+        const maxNodesInput = document.getElementById('maxNodes');
+        const messageBox = document.getElementById('messageBox');
+        // const e1ListDiv = document.getElementById('e1List'); // Debug
+
+        function showMessage(text, duration = 3000) {
+            messageBox.textContent = text;
+            messageBox.style.display = 'block';
+            setTimeout(() => {
+                messageBox.style.display = 'none';
+            }, duration);
+        }
+
+        function updateStatus(statusText, nodes = nodesExplored, time = 0, optArea = null, optL = null, optW = null) {
+            outputDiv.innerHTML = `
+                <p>Status: ${statusText}</p>
+                <p>Optimal Area Found: ${optArea !== null && optArea !== Infinity ? optArea.toFixed(2) : 'N/A'}</p>
+                <p>Dimensions (L x W): ${optL !== null ? `${optL.toFixed(2)} x ${optW.toFixed(2)}` : 'N/A'}</p>
+                <p>Nodes Explored: ${nodes}</p>
+                <p>Time Taken: ${time.toFixed(0)} ms</p>
+            `;
+        }
+
+        // function updateDebugQueue(queue) {
+        //      const topItems = queue.getTopN(5);
+        //      e1ListDiv.innerHTML = topItems.map(item =>
+        //         `<div class="priority-queue-item">f': ${item.priority.toFixed(2)}, G: ${item.item.G.toFixed(1)}, L: ${item.item.l}, W: ${item.item.w}, Counts: ${JSON.stringify(item.item.pieceCounts)}</div>`
+        //     ).join('');
+        // }
+
+
+        startButton.addEventListener('click', () => {
+            startButton.disabled = true;
+            startButton.textContent = "Running...";
+            updateStatus("Parsing input...");
+            clearVisualization(); // Clear previous viz
+
+            try {
+                piecesData = JSON.parse(piecesInput.value);
+                if (!Array.isArray(piecesData) || piecesData.some(p => typeof p.l !== 'number' || typeof p.w !== 'number' || typeof p.b !== 'number' || typeof p.id === 'undefined')) {
+                    throw new Error("Invalid input format. Ensure it's an array of {id, l, w, b} objects.");
+                }
+
+                // Expand pieces based on demand 'b'
+                allPieceInstances = [];
+                totalPieceCounts = {};
+                let instanceCounter = 0;
+                piecesData.forEach(p => {
+                    totalPieceCounts[p.id] = p.b;
+                    for (let i = 0; i < p.b; i++) {
+                        allPieceInstances.push({
+                            ...p,
+                            instanceId: `${p.id}_${i}` // Unique ID for each instance
+                        });
+                    }
+                });
+
+                maxNodesToExplore = parseInt(maxNodesInput.value, 10) || 5000;
+
+
+                // Use setTimeout to allow UI update before potentially long calculation
+                setTimeout(() => {
+                    const resultPacking = bestFirstBranchAndBound();
+                    drawFinalPacking(resultPacking);
+                    startButton.disabled = false;
+                    startButton.textContent = "Start Packing";
+                }, 50); // Short delay
+
+            } catch (error) {
+                console.error("Input Error:", error);
+                updateStatus(`Error: ${error.message}`);
+                showMessage(`Error: ${error.message}`);
+                startButton.disabled = false;
+                startButton.textContent = "Start Packing";
+            }
+        });
+
+        // --- Initialization ---
+        initThreeJS();
+        updateStatus("Ready"); // Initial status
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Bin Packing Visualization (JSON Input)</title>
+    <style>
+        /* Basic styling */
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f0f0;
+            color: #333;
+            display: flex;
+            height: 100vh;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #controls-container {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            max-width: 320px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+
+        #info {
+            margin-bottom: 10px;
+        }
+
+        #json-input-area label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        #jsonInput {
+            width: 100%;
+            min-height: 150px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 5px;
+            font-family: monospace;
+            font-size: 0.85em;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+
+        #action-buttons {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        button {
+            padding: 10px 15px;
+            font-size: 0.9em;
+            font-family: 'Inter', sans-serif;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.2s ease;
+            flex-grow: 1;
+        }
+
+        #loadJsonButton {
+            background-color: #5cb85c;
+            /* Green */
+        }
+
+        #loadJsonButton:hover {
+            background-color: #4cae4c;
+        }
+
+        #startButton {
+            background-color: #4a90e2;
+            /* Blue */
+        }
+
+        #startButton:hover {
+            background-color: #357abd;
+        }
+
+        #resetButton {
+            background-color: #d9534f;
+            /* Red */
+        }
+
+        #resetButton:hover {
+            background-color: #c9302c;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #status {
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        #visualization-container {
+            flex-grow: 1;
+            position: relative;
+        }
+
+        /* Container for canvas */
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div id="controls-container">
+        <div id="info">
+            <strong>3D Bin Packing Visualization</strong><br>
+            Define bin & pieces via JSON, then load & start.
+        </div>
+        <div id="json-input-area">
+            <label for="jsonInput">Bin & Pieces (JSON):</label>
+            <textarea id="jsonInput" spellcheck="false">
+{
+  "bin": {
+    "width": 10,
+    "height": 10,
+    "depth": 10
+  },
+  "pieces": [
+    { "id": 1, "width": 4, "height": 4, "depth": 4 },
+    { "id": 2, "width": 3, "height": 3, "depth": 3 },
+    { "id": 3, "width": 5, "height": 2, "depth": 2 },
+    { "id": 4, "width": 2, "height": 5, "depth": 2 },
+    { "id": 5, "width": 2, "height": 2, "depth": 5 },
+    { "id": 6, "width": 6, "height": 1, "depth": 1 },
+    { "id": 7, "width": 1, "height": 6, "depth": 1 },
+    { "id": 8, "width": 1, "height": 1, "depth": 6 },
+    { "id": 9, "width": 3, "height": 4, "depth": 5 },
+    { "id": 10, "width": 5, "height": 3, "depth": 4 },
+    { "id": 11, "width": 4, "height": 5, "depth": 3 },
+    { "id": 12, "width": 2, "height": 2, "depth": 2 },
+    { "id": 13, "width": 2, "height": 2, "depth": 2 },
+    { "id": 14, "width": 1, "height": 1, "depth": 1 },
+    { "id": 15, "width": 1, "height": 1, "depth": 1 }
+  ]
+}
+            </textarea>
+        </div>
+        <div id="action-buttons">
+            <button id="loadJsonButton">Load Data</button>
+            <button id="startButton" disabled>Start Packing</button>
+            <button id="resetButton">Reset</button>
+        </div>
+        <div id="status">Status: Ready. Load data first.</div>
+    </div>
+
+    <div id="visualization-container">
+    </div>
+
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Global Variables ---
+        let scene, camera, renderer, controls, axesHelper;
+        let binMesh = null; // Initialize as null
+        const pieceMeshes = new THREE.Group();
+        const cornerMeshes = new THREE.Group();
+        let theBin = null; // Initialize bin as null
+        let allPieces = [];
+        let remainingPieces = [];
+        let packingTimeoutId = null;
+        const packingDelay = 100;
+
+        const statusElement = document.getElementById('status');
+        const startButton = document.getElementById('startButton');
+        const resetButton = document.getElementById('resetButton');
+        const loadJsonButton = document.getElementById('loadJsonButton');
+        const jsonInputElement = document.getElementById('jsonInput');
+        const visualizationContainer = document.getElementById('visualization-container');
+
+
+        // --- 1. Data Structures ---
+        // (Piece, Corner, Bin classes remain the same as previous version)
+        class Piece {
+            constructor(id, width, height, depth, value = 0) {
+                this.id = id;
+                this.width = width;
+                this.height = height;
+                this.depth = depth;
+                this.value = value;
+                this.volume = width * height * depth;
+                this.position = null;
+                this.orientation = 0;
+                this.isPlaced = false;
+                this.originalWidth = width;
+                this.originalHeight = height;
+                this.originalDepth = depth;
+            }
+            reset() {
+                this.position = null;
+                this.orientation = 0;
+                this.isPlaced = false;
+                this.width = this.originalWidth;
+                this.height = this.originalHeight;
+                this.depth = this.originalDepth;
+            }
+        }
+        class Corner {
+            constructor(x, y, z) {
+                this.x = x;
+                this.y = y;
+                this.z = z;
+            }
+        }
+        class Bin {
+            constructor(width, height, depth) {
+                // Basic validation
+                if (isNaN(width) || isNaN(height) || isNaN(depth) || width <= 0 || height <= 0 || depth <= 0) {
+                    throw new Error("Invalid bin dimensions. Width, height, and depth must be positive numbers.");
+                }
+                this.width = width;
+                this.height = height;
+                this.depth = depth;
+                this.volume = width * height * depth;
+                this.placedPieces = [];
+                this.corners = [new Corner(0, 0, 0)];
+                this.epsilon = 0.0001;
+            }
+            reset() {
+                this.placedPieces = [];
+                this.corners = [new Corner(0, 0, 0)];
+            }
+            // Methods: checkPlacement, boxesOverlap, placePiece, addCornerIfNotExists, getOrientationDims (Identical)
+            checkPlacement(piece, corner, orientation) {
+                const dims = this.getOrientationDims(piece, orientation);
+                if (corner.x + dims.w > this.width + this.epsilon ||
+                    corner.y + dims.h > this.height + this.epsilon ||
+                    corner.z + dims.d > this.depth + this.epsilon) {
+                    return false;
+                }
+                const pieceBox = new THREE.Box3(
+                    new THREE.Vector3(corner.x, corner.y, corner.z),
+                    new THREE.Vector3(corner.x + dims.w, corner.y + dims.h, corner.z + dims.d)
+                );
+                for (const placed of this.placedPieces) {
+                    const placedDims = this.getOrientationDims(placed, placed.orientation);
+                    const placedBox = new THREE.Box3(
+                        new THREE.Vector3(placed.position.x, placed.position.y, placed.position.z),
+                        new THREE.Vector3(placed.position.x + placedDims.w, placed.position.y + placedDims.h, placed.position.z + placedDims.d)
+                    );
+                    if (pieceBox.intersectsBox(placedBox)) {
+                        if (this.boxesOverlap(pieceBox, placedBox)) {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
+            boxesOverlap(box1, box2) {
+                const overlapX = box1.max.x > box2.min.x + this.epsilon && box1.min.x < box2.max.x - this.epsilon;
+                const overlapY = box1.max.y > box2.min.y + this.epsilon && box1.min.y < box2.max.y - this.epsilon;
+                const overlapZ = box1.max.z > box2.min.z + this.epsilon && box1.min.z < box2.max.z - this.epsilon;
+                return overlapX && overlapY && overlapZ;
+            }
+            placePiece(piece, corner, orientation) {
+                const dims = this.getOrientationDims(piece, orientation);
+                piece.position = { x: corner.x, y: corner.y, z: corner.z };
+                piece.orientation = orientation;
+                piece.isPlaced = true;
+                this.placedPieces.push(piece);
+                this.corners = this.corners.filter(c =>
+                    !(Math.abs(c.x - corner.x) < this.epsilon &&
+                        Math.abs(c.y - corner.y) < this.epsilon &&
+                        Math.abs(c.z - corner.z) < this.epsilon)
+                );
+                const cornerX = new Corner(corner.x + dims.w, corner.y, corner.z);
+                const cornerY = new Corner(corner.x, corner.y + dims.h, corner.z);
+                const cornerZ = new Corner(corner.x, corner.y, corner.z + dims.d);
+                if (cornerX.x < this.width - this.epsilon) this.addCornerIfNotExists(cornerX);
+                if (cornerY.y < this.height - this.epsilon) this.addCornerIfNotExists(cornerY);
+                if (cornerZ.z < this.depth - this.epsilon) this.addCornerIfNotExists(cornerZ);
+                this.corners = this.corners.filter(c => {
+                    const pieceBox = new THREE.Box3(
+                        new THREE.Vector3(corner.x, corner.y, corner.z),
+                        new THREE.Vector3(corner.x + dims.w, corner.y + dims.h, corner.z + dims.d)
+                    );
+                    const point = new THREE.Vector3(c.x, c.y, c.z);
+                    const isInside = point.x > pieceBox.min.x + this.epsilon && point.x < pieceBox.max.x - this.epsilon &&
+                        point.y > pieceBox.min.y + this.epsilon && point.y < pieceBox.max.y - this.epsilon &&
+                        point.z > pieceBox.min.z + this.epsilon && point.z < pieceBox.max.z - this.epsilon;
+                    return !isInside;
+                });
+            }
+            addCornerIfNotExists(newCorner) {
+                const exists = this.corners.some(c =>
+                    Math.abs(c.x - newCorner.x) < this.epsilon &&
+                    Math.abs(c.y - newCorner.y) < this.epsilon &&
+                    Math.abs(c.z - newCorner.z) < this.epsilon
+                );
+                if (!exists) {
+                    this.corners.push(newCorner);
+                }
+            }
+            getOrientationDims(piece, orientation) {
+                switch (orientation) {
+                    case 0: return { w: piece.width, h: piece.height, d: piece.depth };
+                    case 1: return { w: piece.height, h: piece.width, d: piece.depth };
+                    case 2: return { w: piece.width, h: piece.depth, d: piece.height };
+                    case 3: return { w: piece.depth, h: piece.width, d: piece.height };
+                    case 4: return { w: piece.height, h: piece.depth, d: piece.width };
+                    case 5: return { w: piece.depth, h: piece.height, d: piece.width };
+                    default: return { w: piece.width, h: piece.height, d: piece.depth };
+                }
+            }
+        }
+
+        // --- 2. Packing Algorithm ---
+        // (evaluatePlacementHeuristic, findBestPlacement, packStep - Identical)
+        function evaluatePlacementHeuristic(piece, corner, dims, orientation, bin) {
+            let score = piece.volume * 1.0;
+            const positionPenalty = (corner.x + corner.y + corner.z) * 0.5;
+            score -= positionPenalty;
+            if (dims.w * dims.d > dims.w * dims.h && dims.w * dims.d > dims.h * dims.d) {
+                score += piece.volume * 0.1;
+            }
+            score -= corner.y * 1.0;
+            return score;
+        }
+        function findBestPlacement(bin, currentRemainingPieces) {
+            let bestPlacement = null;
+            let bestScore = -Infinity;
+            for (let i = 0; i < currentRemainingPieces.length; i++) {
+                const piece = currentRemainingPieces[i];
+                for (const corner of bin.corners) {
+                    for (let orientation = 0; orientation < 6; orientation++) {
+                        if (bin.checkPlacement(piece, corner, orientation)) {
+                            const dims = bin.getOrientationDims(piece, orientation);
+                            const currentScore = evaluatePlacementHeuristic(piece, corner, dims, orientation, bin);
+                            if (currentScore > bestScore) {
+                                bestScore = currentScore;
+                                bestPlacement = { piece, corner, orientation, pieceIndex: i, score: currentScore };
+                            }
+                        }
+                    }
+                }
+            }
+            return bestPlacement;
+        }
+        function packStep() {
+            if (!theBin || remainingPieces.length === 0) {
+                const message = !theBin ? "Status: Load data first." : "Status: Packing Complete (All pieces placed).";
+                statusElement.textContent = message;
+                console.log(message);
+                startButton.disabled = !theBin; // Keep disabled if no bin
+                if (packingTimeoutId) clearTimeout(packingTimeoutId);
+                packingTimeoutId = null;
+                return;
+            }
+
+            const bestPlacement = findBestPlacement(theBin, remainingPieces);
+
+            if (bestPlacement) {
+                const { piece, corner, orientation, pieceIndex, score } = bestPlacement;
+                theBin.placePiece(piece, corner, orientation);
+                remainingPieces.splice(pieceIndex, 1);
+                statusElement.textContent = `Status: Placed Piece ${piece.id} (Score: ${score.toFixed(2)}). Remaining: ${remainingPieces.length}`;
+                visualizePacking(theBin.placedPieces, theBin);
+                visualizeCorners(theBin.corners);
+                packingTimeoutId = setTimeout(packStep, packingDelay);
+            } else {
+                statusElement.textContent = `Status: Packing Complete (Cannot place remaining ${remainingPieces.length} pieces).`;
+                console.log(`Packing Complete: No valid placement found for remaining ${remainingPieces.length} pieces.`);
+                startButton.disabled = false; // Re-enable start if needed (though reset is better)
+                if (packingTimeoutId) clearTimeout(packingTimeoutId);
+                packingTimeoutId = null;
+            }
+        }
+
+        /** Initiates the step-by-step packing process. Requires data to be loaded first. */
+        function startPackingProcess() {
+            if (!theBin || !allPieces.length) {
+                statusElement.textContent = "Status: Error - Load data before starting.";
+                return;
+            }
+            if (packingTimeoutId) { // Prevent multiple starts
+                console.log("Packing already in progress.");
+                return;
+            }
+
+            // Reset state but keep loaded data
+            theBin.reset();
+            allPieces.forEach(p => p.reset());
+            remainingPieces = [...allPieces]; // Use the loaded pieces
+            pieceMeshes.clear();
+            cornerMeshes.clear();
+            visualizeCorners(theBin.corners); // Show initial corner for the loaded bin
+
+            // Sort pieces once initially (optional, heuristic might override)
+            remainingPieces.sort((a, b) => b.volume - a.volume);
+
+            startButton.disabled = true; // Disable start during packing
+            resetButton.disabled = true; // Disable reset during packing
+            loadJsonButton.disabled = true; // Disable load during packing
+
+            statusElement.textContent = "Status: Packing Started...";
+            console.log("Packing Started...");
+            packingTimeoutId = setTimeout(packStep, packingDelay);
+        }
+
+        /** Resets the packing state and visualization completely, requires reload of data. */
+        function resetPacking() {
+            if (packingTimeoutId) {
+                clearTimeout(packingTimeoutId);
+                packingTimeoutId = null;
+            }
+            if (theBin) {
+                theBin.reset(); // Reset internal state if bin exists
+                allPieces.forEach(p => p.reset());
+                remainingPieces = [];
+                pieceMeshes.clear();
+                cornerMeshes.clear();
+                visualizeCorners(theBin.corners); // Show initial corner
+                statusElement.textContent = "Status: Reset. Load data to start.";
+            } else {
+                statusElement.textContent = "Status: Ready. Load data first.";
+            }
+
+            startButton.disabled = true; // Disable start until data loaded
+            resetButton.disabled = false;
+            loadJsonButton.disabled = false;
+            console.log("Packing Reset.");
+        }
+
+        /** Loads bin and piece data from the JSON input field. */
+        function loadDataFromJson() {
+            if (packingTimeoutId) {
+                statusElement.textContent = "Status: Stop packing before loading new data.";
+                return;
+            }
+            let data;
+            try {
+                data = JSON.parse(jsonInputElement.value);
+            } catch (error) {
+                statusElement.textContent = `Status: Error - Invalid JSON: ${error.message}`;
+                console.error("JSON Parsing Error:", error);
+                startButton.disabled = true;
+                return;
+            }
+
+            // Validate data structure
+            if (!data || typeof data.bin !== 'object' || !Array.isArray(data.pieces)) {
+                statusElement.textContent = "Status: Error - Invalid JSON structure. Need 'bin' object and 'pieces' array.";
+                startButton.disabled = true;
+                return;
+            }
+            if (typeof data.bin.width !== 'number' || typeof data.bin.height !== 'number' || typeof data.bin.depth !== 'number') {
+                statusElement.textContent = "Status: Error - Bin dimensions (width, height, depth) must be numbers.";
+                startButton.disabled = true;
+                return;
+            }
+
+            try {
+                // Create new Bin (this includes validation)
+                theBin = new Bin(data.bin.width, data.bin.height, data.bin.depth);
+
+                // Create new Pieces
+                allPieces = data.pieces.map((p, index) => {
+                    if (typeof p.width !== 'number' || typeof p.height !== 'number' || typeof p.depth !== 'number' ||
+                        p.width <= 0 || p.height <= 0 || p.depth <= 0) {
+                        throw new Error(`Invalid dimensions for piece at index ${index} (id: ${p.id || 'N/A'}). Dimensions must be positive numbers.`);
+                    }
+                    // Ensure ID is unique or generate one
+                    const id = p.id !== undefined ? p.id : `piece_${index + 1}`;
+                    return new Piece(id, p.width, p.height, p.depth, p.value || 0);
+                });
+
+                // Update visualization for the new bin size
+                updateVisualizationForNewBin();
+
+                // Reset packing state with new data
+                resetPacking(); // Resets bin state, clears meshes, resets pieces
+                statusElement.textContent = `Status: Data Loaded (${allPieces.length} pieces). Ready to Pack.`;
+                startButton.disabled = false; // Enable start button now
+                console.log("Data loaded successfully.");
+
+            } catch (error) {
+                statusElement.textContent = `Status: Error - ${error.message}`;
+                console.error("Data Loading Error:", error);
+                theBin = null; // Invalidate bin on error
+                allPieces = [];
+                startButton.disabled = true;
+            }
+        }
+
+
+        // --- 3. Three.js Visualization Setup ---
+
+        /** Updates the visualization elements tied to the bin size */
+        function updateVisualizationForNewBin() {
+            if (!theBin) return;
+
+            // Remove old bin mesh if it exists
+            if (binMesh) {
+                scene.remove(binMesh);
+                binMesh.geometry.dispose();
+                binMesh.material.dispose();
+                binMesh = null;
+            }
+
+            // Create new bin mesh
+            const binGeometry = new THREE.BoxGeometry(theBin.width, theBin.height, theBin.depth);
+            const binEdges = new THREE.EdgesGeometry(binGeometry);
+            binMesh = new THREE.LineSegments(binEdges, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 }));
+            binMesh.position.set(theBin.width / 2, theBin.height / 2, theBin.depth / 2);
+            scene.add(binMesh);
+
+            // Update Axes Helper size
+            scene.remove(axesHelper); // Remove old one
+            axesHelper = new THREE.AxesHelper(Math.max(theBin.width, theBin.height, theBin.depth) * 1.2);
+            scene.add(axesHelper);
+
+            // Update camera position and controls target (optional, but helpful)
+            camera.position.set(theBin.width * 1.2, theBin.height * 1.5, theBin.depth * 1.8);
+            controls.target.set(theBin.width / 2, theBin.height / 2, theBin.depth / 2);
+            controls.update();
+        }
+
+
+        /** Initializes the base Three.js scene, camera, renderer, controls, lighting */
+        function initBaseVisualization() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(visualizationContainer.clientWidth, visualizationContainer.clientHeight); // Use container size
+            renderer.setPixelRatio(window.devicePixelRatio);
+            visualizationContainer.appendChild(renderer.domElement); // Append to container
+
+            const ambientLight = new THREE.AmbientLight(0x606060, 1.5);
+            scene.add(ambientLight);
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
+            directionalLight1.position.set(1, 0.75, 0.5).normalize();
+            scene.add(directionalLight1);
+            const directionalLight2 = new THREE.DirectionalLight(0xaaaaaa, 0.8);
+            directionalLight2.position.set(-1, -0.75, -0.5).normalize();
+            scene.add(directionalLight2);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+
+            // Add groups for pieces and corners to the scene
+            scene.add(pieceMeshes);
+            scene.add(cornerMeshes);
+
+            // Dummy axes helper initially, will be updated when data loads
+            axesHelper = new THREE.AxesHelper(10);
+            scene.add(axesHelper);
+
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+            console.log("Base Three.js visualization initialized.");
+        }
+
+        // (visualizePacking, visualizeCorners - Identical)
+        function visualizePacking(packedPieces, bin) {
+            pieceMeshes.clear();
+            packedPieces.forEach(piece => {
+                const dims = bin.getOrientationDims(piece, piece.orientation);
+                const geometry = new THREE.BoxGeometry(dims.w, dims.h, dims.d);
+                const material = new THREE.MeshLambertMaterial({
+                    color: new THREE.Color(Math.random() * 0xffffff),
+                    transparent: true,
+                    opacity: 0.9
+                });
+                const cube = new THREE.Mesh(geometry, material);
+                cube.position.set(
+                    piece.position.x + dims.w / 2,
+                    piece.position.y + dims.h / 2,
+                    piece.position.z + dims.d / 2
+                );
+                pieceMeshes.add(cube);
+                const edges = new THREE.EdgesGeometry(geometry);
+                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x333333, transparent: true, opacity: 0.6 }));
+                line.position.copy(cube.position);
+                pieceMeshes.add(line);
+            });
+        }
+        function visualizeCorners(corners) {
+            cornerMeshes.clear();
+            const cornerGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const cornerMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff }); // Blue
+
+            corners.forEach(corner => {
+                const sphere = new THREE.Mesh(cornerGeometry, cornerMaterial);
+                sphere.position.set(corner.x, corner.y, corner.z);
+                cornerMeshes.add(sphere);
+            });
+        }
+
+        /** Handles window resize events */
+        function onWindowResize() {
+            // Adjust based on the container div, not the whole window
+            const width = visualizationContainer.clientWidth;
+            const height = visualizationContainer.clientHeight;
+            if (width === 0 || height === 0) return; // Avoid issues if container is hidden
+
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+
+        /** The main animation loop */
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- 4. Initialization and Event Listeners ---
+
+        // Initialize base visualization (without data)
+        initBaseVisualization();
+
+        // Add event listeners for buttons
+        loadJsonButton.addEventListener('click', loadDataFromJson);
+        startButton.addEventListener('click', startPackingProcess);
+        resetButton.addEventListener('click', resetPacking);
+
+        // Attempt to load default data on page load
+        loadDataFromJson();
+
+
+    </script>
+</body>
+
+</html>

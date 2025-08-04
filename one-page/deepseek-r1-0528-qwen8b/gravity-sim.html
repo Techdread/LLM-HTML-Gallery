@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravity Well Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #0a1826, #1a2a6c, #2c3e50);
+            color: white;
+            height: 100vh;
+        }
+
+        #canvas-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: #0a1826;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(10, 24, 38, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+            max-width: 300px;
+            backdrop-filter: blur(10px);
+        }
+
+        #controls h2 {
+            text-align: center;
+            margin-bottom: 15px;
+            color: #ffcc00;
+            font-size: 1.4em;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding-bottom: 5px;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+            background: rgba(15, 35, 60, 0.5);
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .control-group h3 {
+            margin-bottom: 10px;
+            color: #7cff7c;
+            font-size: 1.2em;
+        }
+
+        .slider-container {
+            margin-bottom: 8px;
+        }
+
+        .slider-container label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 0.9em;
+            color: #c9f0ff;
+        }
+
+        .slider-value {
+            display: inline-block;
+            width: 30px;
+            text-align: right;
+            color: #7cff7c;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            -webkit-appearance: none;
+            background: #1a2a6c;
+            height: 6px;
+            border-radius: 3px;
+            outline: none;
+            transition: background 0.3s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #ffcc00;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(255, 204, 0, 0.8);
+            transition: all 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            background: #ffd633;
+        }
+
+        .button-group {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px;
+            background: linear-gradient(to bottom, #ff9900, #cc6600);
+            border: 1px solid #995500;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        button:hover {
+            background: linear-gradient(to bottom, #ffaa33, #dd7700);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        button:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        button.secondary {
+            background: linear-gradient(to bottom, #777, #333);
+            color: #ddd;
+        }
+
+        button.secondary:hover {
+            background: linear-gradient(to bottom, #999, #444);
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 24, 38, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+        }
+
+        #instructions h3 {
+            margin-bottom: 10px;
+            color: #99ccff;
+            font-size: 1.2em;
+        }
+
+        #instructions p {
+            margin-bottom: 8px;
+            font-size: 0.9em;
+            color: #c9f0ff;
+        }
+
+        .legend {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin: 10px 0;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .legend-text {
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+
+        .loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(10, 24, 38, 0.9);
+            z-index: 100;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 204, 0, 0.3);
+            border-radius: 50%;
+            border-top-color: #ffcc00;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading-text {
+            font-size: 1.2em;
+            color: #7cff7c;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="loading">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading Gravity Simulation...</div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div id="controls">
+        <h2>Gravity Well Controls</h2>
+
+        <div class="control-group">
+            <h3>Object Properties</h3>
+
+            <div class="slider-container">
+                <label for="mass">Mass <span id="massValue" class="slider-value">100</span></label>
+                <input type="range" id="mass" min="10" max="1000" value="100">
+                <div class="well-notice">Higher mass = stronger gravity</div>
+            </div>
+
+            <div class="slider-container">
+                <label for="radius">Radius <span id="radiusValue" class="slider-value">4</span></label>
+                <input type="range" id="radius" min="1" max="10" value="4">
+                <div class="well-notice">Object size in the simulation</div>
+            </div>
+
+            <div class="button-group">
+                <button id="place-button">Place Object</button>
+                <button class="secondary" id="clear-objects">Clear All</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <h3>Particle Properties</h3>
+
+            <div class="slider-container">
+                <label for="particle-velocity">Initial Velocity <span id="particle-velocity-value"
+                        class="slider-value">5</span></label>
+                <input type="range" id="particle-velocity" min="2" max="10" value="5">
+                <div class="well-notice">Launch speed of particles</div>
+            </div>
+
+            <div class="button-group">
+                <button id="launch-particle">Launch Particle</button>
+                <button class="secondary" id="clear-particles">Clear All</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <h3>Simulation Mode</h3>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #cc6666;"></div>
+                    <span class="legend-text">Place Object</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #7777ff;"></div>
+                    <span class="legend-text">Add Particles</span>
+                </div>
+            </div>
+            <div class="button-group">
+                <button id="mode-place" style="background: linear-gradient(to bottom, #cc6666, #993333);">Place
+                    Objects</button>
+                <button id="mode-particles" style="background: linear-gradient(to bottom, #7777ff, #5555cc);">Add
+                    Particles</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="instructions">
+        <h3>Gravity Well Simulation</h3>
+        <p>Objects <strong>(red)</strong> create spacetime curvature</p>
+        <p>Change the mass and velocity before placing objects or particles</p>
+        <p>Click in the simulation to <strong>place objects</strong> (default)</p>
+        <p>Right-click in the simulation to <strong>launch particles</strong></p>
+    </div>
+
+    <!-- Load Three.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
+
+    <!-- Manual implementation of OrbitControls, simplified -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // App state
+        const state = {
+            isPlacingObjects: true,
+            objects: [],
+            particles: [],
+            trails: [],
+            gravityWells: [],
+            clock: new THREE.Clock(),
+            gridScale: 5,
+            gridSegments: 30,
+            mode: 'placing',
+            trailsContainer: null
+        };
+
+        // DOM Elements
+        const massSlider = document.getElementById('mass');
+        const massValue = document.getElementById('massValue');
+        const radiusSlider = document.getElementById('radius');
+        const radiusValue = document.getElementById('radiusValue');
+        const particleVelocitySlider = document.getElementById('particle-velocity');
+        const particleVelocityValue = document.getElementById('particle-velocity-value');
+        const placeButton = document.getElementById('place-button');
+        const clearObjectsButton = document.getElementById('clear-objects');
+        const launchParticleButton = document.getElementById('launch-particle');
+        const clearParticlesButton = document.getElementById('clear-particles');
+        const modePlaceButton = document.getElementById('mode-place');
+        const modeParticlesButton = document.getElementById('mode-particles');
+        const canvasContainer = document.getElementById('canvas-container');
+        const loadingScreen = document.querySelector('.loading');
+
+        // World dimensions
+        const worldWidth = 100;
+        const gridSegments = 50;
+
+        // Update sliders and values
+        massSlider.addEventListener('input', () => {
+            state.mass = parseInt(massSlider.value);
+            massValue.textContent = state.mass;
+        });
+
+        radiusSlider.addEventListener('input', () => {
+            state.radius = parseInt(radiusSlider.value);
+            radiusValue.textContent = state.radius;
+        });
+
+        particleVelocitySlider.addEventListener('input', () => {
+            state.particleVelocity = parseInt(particleVelocitySlider.value);
+            particleVelocityValue.textContent = state.particleVelocity;
+        });
+
+        // Check if the simulation has loaded properly
+        window.addEventListener('load', function () {
+            // Verify Three.js is loaded
+            if (typeof THREE === 'undefined') {
+                alert('Three.js library failed to load. Please check your internet connection and try again.');
+                console.error('Three.js is not available');
+                return;
+            }
+
+            // Start the simulation
+            init();
+        });
+
+        // UI Controls
+        placeButton.addEventListener('click', () => {
+            if (state.mode === 'placing') {
+                placeObject();
+            }
+        });
+
+        clearObjectsButton.addEventListener('click', () => {
+            while (state.objects.length > 0) {
+                const obj = state.objects.pop();
+                const container = obj.mesh.parent; // Corrected: obj.mesh.parent instead of obj.geometry.parent
+                if (container) container.remove(obj.mesh); // Corrected: remove obj.mesh
+            }
+            state.gravityWells.forEach(well => {
+                const container = well.parent; // Corrected: well.parent instead of well.geometry.parent
+                if (container) container.remove(well); // Corrected: remove well
+            });
+            state.gravityWells = [];
+            // Removed clearTrails() call here as it might not be defined yet or necessary if particles handle their own trails
+        });
+
+
+        launchParticleButton.addEventListener('click', () => {
+            // Check if the event object exists, as it might not if called programmatically
+            if (state.mode === 'launched' && (typeof event === 'undefined' || event.button === 0)) { // Assuming launch button means a generic launch, not tied to right-click
+                launchParticle();
+            }
+        });
+
+
+        clearParticlesButton.addEventListener('click', () => {
+            state.particles.forEach((particle) => {
+                if (particle.mesh && particle.mesh.parent) {
+                    particle.mesh.parent.remove(particle.mesh);
+                }
+                // If particles have trails managed separately and added to scene, remove them
+                if (particle.trail && particle.trail.parent) {
+                    particle.trail.parent.remove(particle.trail);
+                }
+            });
+            state.particles = [];
+        });
+
+        modePlaceButton.addEventListener('click', () => {
+            state.mode = 'placing';
+            modePlaceButton.style.boxShadow = '0 0 10px rgba(100, 100, 200, 0.8)';
+            modeParticlesButton.style.boxShadow = 'none';
+            state.isPlacingObjects = true;
+            placeButton.textContent = 'Place Object';
+            placeButton.style.background = 'linear-gradient(to bottom, #cc6666, #993333)';
+            // placeButton.classList.remove('secondary'); // This class was not added to placeButton initially
+        });
+
+        modeParticlesButton.addEventListener('click', () => {
+            state.mode = 'launched'; // Changed from 'particles' to 'launched' to match launchParticleButton logic
+            modeParticlesButton.style.boxShadow = '0 0 10px rgba(100, 100, 200, 0.8)';
+            modePlaceButton.style.boxShadow = 'none';
+            state.isPlacingObjects = false;
+            // The following lines seem to intend to change the 'placeButton' to act as a 'launch particle' button
+            // This might be confusing. Consider renaming placeButton or having separate logic.
+            // For now, keeping as is, assuming this is intended UI behavior.
+            placeButton.textContent = 'Launch Particle'; // Text changes
+            placeButton.style.background = 'linear-gradient(to bottom, #7777ff, #5555cc)'; // Style changes
+            // placeButton.classList.add('secondary'); // This class was not part of placeButton's original classes
+        });
+
+        // Place object function (simplified for clarity)
+        function placeObject() {
+            // Check if mouse is pressed - this event check is problematic if called from button
+            // For button click, event might not be what's expected.
+            // Assuming this function is also called by direct canvas click where event is valid.
+            // if (event && event.button === 0) { // left click - Removed for button compatibility
+            const gridDivisions = 20;
+            const gridSize = worldWidth;
+
+            const x = Math.floor(Math.random() * (gridDivisions - 2)) * (gridSize / gridDivisions) - (gridSize / 2) + 15;
+            const z = Math.floor(Math.random() * (gridDivisions - 2)) * (gridSize / gridDivisions) - (gridSize / 2) + 15;
+
+            const geometry = new THREE.SphereGeometry(state.radius / 5, 32, 32);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0xcc6666,
+                emissive: 0x7c2727,
+                shininess: 30,
+                specular: 0x555555,
+            });
+
+            const objectMesh = new THREE.Mesh(geometry, material); // Renamed to objectMesh for clarity
+            objectMesh.position.set(x, state.radius / 5, z); // Y position based on radius for ground placement
+            objectMesh.castShadow = true;
+
+            scene.add(objectMesh);
+
+            state.objects.push({
+                mesh: objectMesh,
+                mass: state.mass, // Ensure state.mass is current
+                radius: state.radius, // Ensure state.radius is current
+                position: objectMesh.position.clone() // Use .clone() for position
+            });
+
+            createGravitationalEffect(objectMesh); // Pass the mesh
+            // }
+        }
+
+        // Launch particles function
+        function launchParticle() {
+            // This event check is problematic if called from button.
+            // if (event && event.button === 2) { // right click - Removed for button compatibility
+            const angle = Math.random() * Math.PI * 2;
+            const speed = state.particleVelocity * (0.7 + Math.random() * 0.5); // Ensure state.particleVelocity is current
+
+            const direction = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)); // Launch horizontally for this example
+            // Or use camera direction if preferred:
+            // const direction = new THREE.Vector3(0, 0, -1);
+            // direction.applyQuaternion(camera.quaternion);
+            direction.normalize();
+
+            const particleGeometry = new THREE.SphereGeometry(0.5, 16, 16); // Reduced segments for performance
+            const particleMaterial = new THREE.MeshBasicMaterial({
+                color: 0x7777ff,
+            });
+            const particleMesh = new THREE.Mesh(particleGeometry, particleMaterial); // Renamed
+
+            // Position particle near camera or a fixed point
+            particleMesh.position.copy(camera.position).add(direction.clone().multiplyScalar(5)); // Start 5 units in front of camera
+
+            scene.add(particleMesh);
+
+            state.particles.push({
+                mesh: particleMesh,
+                label: 'Particle',
+                velocity: new THREE.Vector3(direction.x * speed, direction.y * speed, direction.z * speed), // Store as Vector3
+                timer: 0,
+                // trail: [] // Trail logic needs to be implemented if desired
+            });
+            // }
+        }
+
+        // MOVED INITIALIZATIONS UP //
+        // Create scene and camera (simplified)
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 15, 30);
+
+        // Renderer setup
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        canvasContainer.appendChild(renderer.domElement);
+
+        // Simplified OrbitControls imitation
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // Create gravity effect visualization
+        function createGravitationalEffect(objectMesh) { // Takes the object's mesh
+            // Visualize the gravity effect
+            const effectGeometry = new THREE.RingGeometry(objectMesh.geometry.parameters.radius * 2, objectMesh.geometry.parameters.radius * 5, 32);
+            const effectMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff9900,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.4
+            });
+
+            const effect = new THREE.Mesh(effectGeometry, effectMaterial);
+            effect.rotation.x = Math.PI / 2;
+            effect.position.copy(objectMesh.position);
+            effect.position.y = 0; // Place effect on the grid plane
+
+            scene.add(effect);
+            state.gravityWells.push(effect); // Store for clearing
+        }
+
+        // Clear all trails (if you implement trails)
+        function clearTrails() {
+            state.trails.forEach(trail => {
+                if (trail.parent) trail.parent.remove(trail);
+            });
+            state.trails = [];
+        }
+
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = state.clock.getDelta(); // Get time delta for frame-rate independent movement
+
+            // Update controls
+            controls.update();
+
+            // Handle particle movement
+            for (let i = state.particles.length - 1; i >= 0; i--) {
+                const p = state.particles[i];
+
+                // Apply gravity from objects
+                state.objects.forEach(obj => {
+                    const directionToObj = new THREE.Vector3().subVectors(obj.mesh.position, p.mesh.position);
+                    const distanceSq = directionToObj.lengthSq();
+                    if (distanceSq < 0.1) distanceSq = 0.1; // Avoid division by zero / extreme forces
+
+                    const forceMagnitude = (0.01 * obj.mass) / distanceSq; // G * m1*m2 / r^2 (m2=1 for particle)
+                    directionToObj.normalize().multiplyScalar(forceMagnitude);
+                    p.velocity.add(directionToObj);
+                });
+
+                p.mesh.position.addScaledVector(p.velocity, delta);
+                p.timer += delta;
+
+                // Check if particle is out of bounds or lifetime exceeded
+                if (p.mesh.position.length() > worldWidth * 2 || p.timer > 10) { // Example: remove after 10 seconds or if too far
+                    if (p.mesh.parent) p.mesh.parent.remove(p.mesh);
+                    // if (p.trail && p.trail.parent) p.trail.parent.remove(p.trail); // If trails exist
+                    state.particles.splice(i, 1);
+                }
+            }
+
+            // Render the scene
+            renderer.render(scene, camera);
+        }
+
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x333355, 0.4);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        directionalLight.position.set(0, 1, 1); // Adjusted light direction
+        directionalLight.castShadow = true; // Enable shadows for this light
+        scene.add(directionalLight);
+
+        // Create a simple grid for reference
+        const gridHelper = new THREE.GridHelper(worldWidth, gridSegments, 0x3366aa, 0x224499);
+        // gridHelper.position.y = -0.5; // Grid is usually at y=0 by default
+        scene.add(gridHelper);
+
+        // Create a reference sphere (can be removed if not needed)
+        const referenceSphere = new THREE.Mesh(
+            new THREE.SphereGeometry(3, 32, 32),
+            new THREE.MeshBasicMaterial({
+                color: 0x88ccff,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.5
+            })
+        );
+        referenceSphere.visible = false; // Keep it hidden unless for debugging
+        scene.add(referenceSphere);
+
+        // Create a ground plane
+        const groundGeometry = new THREE.PlaneGeometry(worldWidth, worldWidth);
+        const groundMaterial = new THREE.MeshStandardMaterial({ // Use MeshStandardMaterial for better lighting
+            color: 0x1a1a40, // Dark blue ground
+            roughness: 0.8,
+            metalness: 0.2
+            // wireframe: true, // Usually not needed for solid ground
+            // transparent: true, // Usually not needed for solid ground
+            // opacity: 0.5 // Usually not needed for solid ground
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true; // Ground should receive shadows
+        // ground.position.y = -10; // If grid is at y=0, ground should be at y=0 or slightly below
+        scene.add(ground);
+
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+        });
+
+        // File cleanup example (handle on load)
+        // Conditionally call init only when the simulation is ready
+        function init() {
+            console.log("Gravity simulation initialized!");
+            loadingScreen.style.display = 'none';
+            animate();
+        }
+
+        // Show confirmation on load
+        setTimeout(() => {
+            alert("Gravity Well Simulation is ready!\n\nLeft-click on canvas to place objects (if in Place Object mode)\nOr use buttons in control panel.\nDrag to rotate view.");
+        }, 1000);
+
+        // Set initial state values from sliders
+        state.mass = parseInt(massSlider.value);
+        state.radius = parseInt(radiusSlider.value);
+        state.particleVelocity = parseInt(particleVelocitySlider.value);
+
+        // Add canvas click listeners for placing objects or particles based on mode
+        canvasContainer.addEventListener('click', (event) => {
+            if (state.mode === 'placing') {
+                // Convert mouse click to world coordinates to place object
+                // This requires a raycaster. For simplicity, this example will use the random placement
+                // from the placeObject function if called directly.
+                // To implement precise placement:
+                // const mouse = new THREE.Vector2();
+                // mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                // mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                // const raycaster = new THREE.Raycaster();
+                // raycaster.setFromCamera(mouse, camera);
+                // const intersects = raycaster.intersectObject(ground); // Intersect with the ground plane
+                // if (intersects.length > 0) {
+                //     const point = intersects[0].point;
+                //     placeObjectAtPoint(point.x, point.z); // A new function to place at specific coords
+                // }
+                // For now, just call the existing random placeObject:
+                placeObject(); // This will place randomly as per its current logic
+            }
+        });
+
+        canvasContainer.addEventListener('contextmenu', (event) => {
+            event.preventDefault(); // Prevent context menu
+            if (state.mode === 'launched') { // Or a dedicated "launch on right click" mode
+                // Similar to above, could use raycaster for direction or launch from camera view
+                launchParticle(); // This will launch as per its current logic
+            }
+        });
+
+    </script>
+</body>
+
+</html>

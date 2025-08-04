@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Container with N Boxes - JSON Output</title>
+    <style>
+        /* Basic page styling */
+        body { margin: 0; overflow: hidden; font-family: sans-serif; background-color: #111; color: #fff; }
+        canvas { display: block; } /* Prevent scrollbars */
+
+        /* Styling for the information panel (top-left) */
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            min-width: 200px;
+            z-index: 10;
+        }
+        #info h3 { margin-top: 0; }
+        #info p { margin: 5px 0; }
+
+        /* Styling for the controls panel (bottom-left) */
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            z-index: 10;
+            display: flex; /* Arrange items horizontally */
+            align-items: center; /* Vertically align items */
+            gap: 10px; /* Space between elements */
+        }
+        /* Style for new input/button */
+        #controls label, #controls input, #controls button {
+             font-size: 0.9em;
+        }
+         #controls input[type="number"] {
+            width: 60px; /* Adjust width */
+            padding: 4px;
+            border-radius: 3px;
+            border: 1px solid #555;
+            background-color: #333;
+            color: #fff;
+         }
+         #controls button {
+             padding: 5px 10px;
+             border-radius: 3px;
+             border: 1px solid #555;
+             background-color: #444;
+             color: #fff;
+             cursor: pointer;
+         }
+         #controls button:hover {
+             background-color: #555;
+         }
+
+
+        /* Styling for the JSON output container (above controls) */
+         #jsonOutputContainer {
+            position: absolute;
+            /* Adjusted bottom position to make space for controls */
+            bottom: 75px;
+            left: 10px;
+            width: 350px;
+            max-height: 600px;
+            height: 400px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+        }
+        #jsonOutputContainer label {
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #ccc;
+        }
+        #jsonDataOutput {
+            width: 100%;
+            flex-grow: 1;
+            background-color: #222;
+            color: #ddd;
+            border: 1px solid #444;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.8em;
+            resize: none;
+            white-space: pre;
+            overflow: auto;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h3>Box Information</h3>
+        <p>Click on a box to see its details.</p>
+        <p id="box-id">ID: -</p>
+        <p id="box-dims">Dimensions: -</p>
+        <p id="box-vol">Volume: -</p>
+    </div>
+
+    <div id="controls">
+        <label>
+            <input type="checkbox" id="visibilityToggle" disabled> Toggle Selected Visibility
+        </label>
+        <label for="boxCountInput">Boxes (n):</label>
+        <input type="number" id="boxCountInput" value="55" min="2" max="1000">
+        <button id="regenerateButton">Generate</button>
+    </div>
+
+    <div id="jsonOutputContainer">
+        <label for="jsonDataOutput">Generated Box Data (JSON):</label>
+        <textarea id="jsonDataOutput" readonly></textarea>
+    </div>
+
+
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Configuration ---
+        const containerDimensions = { w: 1200, h: 1000, d: 1200 };
+        // Default box count removed, will be read from input
+        const highlightColor = 0xffff00; // Yellow for selected box
+
+        // --- Global Variables ---
+        let scene, camera, renderer, controls;
+        let raycaster, mouse;
+        let containerMesh, containerWireframe; // References to container parts
+        let internalBoxesGroup; // Group to hold the smaller boxes
+        let clickableBoxes = []; // Array for raycasting interaction
+        let selectedBoxMesh = null; // Currently selected box
+
+        // References to HTML UI elements
+        const infoPanel = {
+            id: document.getElementById('box-id'),
+            dims: document.getElementById('box-dims'),
+            vol: document.getElementById('box-vol'),
+            title: document.querySelector('#info h3'),
+            defaultText: document.querySelector('#info p'),
+        };
+        const visibilityToggle = document.getElementById('visibilityToggle');
+        const jsonOutputTextarea = document.getElementById('jsonDataOutput');
+        const boxCountInput = document.getElementById('boxCountInput'); // Input for n
+        const regenerateButton = document.getElementById('regenerateButton'); // Button
+
+        // --- Algorithm: Generate Box Data ---
+        // (Function remains the same as before, accepting 'count' as parameter)
+        function generateBoxes(containerW, containerH, containerD, count) {
+            let boxIdCounter = 0;
+            const boxes = [];
+            let spaces = [ { x: 0, y: 0, z: 0, w: containerW, h: containerH, d: containerD } ];
+
+            while (spaces.length < count && spaces.length > 0) {
+                let largestSpaceIndex = -1;
+                let largestVolume = -1;
+                for (let i = 0; i < spaces.length; i++) {
+                    const vol = spaces[i].w * spaces[i].h * spaces[i].d;
+                    if (vol > largestVolume) {
+                        largestVolume = vol;
+                        largestSpaceIndex = i;
+                    }
+                }
+                 if (largestSpaceIndex === -1) break; // Should not happen if spaces exist
+
+                const spaceToSplit = spaces.splice(largestSpaceIndex, 1)[0];
+
+                let axis;
+                const dims = [spaceToSplit.w, spaceToSplit.h, spaceToSplit.d];
+                const maxDim = Math.max(...dims);
+
+                // Prioritize splitting along the longest dimension that is >= 2
+                if (maxDim === spaceToSplit.w && spaceToSplit.w >= 2) axis = 'x';
+                else if (maxDim === spaceToSplit.h && spaceToSplit.h >= 2) axis = 'y';
+                else if (maxDim === spaceToSplit.d && spaceToSplit.d >= 2) axis = 'z';
+                else { // Fallback: Find *any* dimension >= 2 to split
+                    if (spaceToSplit.w >= 2) axis = 'x';
+                    else if (spaceToSplit.h >= 2) axis = 'y';
+                    else if (spaceToSplit.d >= 2) axis = 'z';
+                    else { // Cannot split this space further
+                        spaces.push(spaceToSplit); // Put it back
+                        console.warn("Cannot split space further (all dims < 2):", spaceToSplit);
+                        // If we keep failing to split, we might enter an infinite loop.
+                        // Break if no progress is made (e.g., check if spaces.length decreased).
+                        // For simplicity here, we rely on the outer loop condition.
+                        // A more robust solution might remove unsplittable spaces.
+                        continue; // Try splitting another space
+                    }
+                }
+
+                let splitCoord;
+                let dimSize;
+                switch (axis) {
+                    case 'x': dimSize = spaceToSplit.w; break;
+                    case 'y': dimSize = spaceToSplit.h; break;
+                    case 'z': dimSize = spaceToSplit.d; break;
+                }
+
+                // Recalculate dimSize in case fallback axis was chosen
+                // dimSize = spaceToSplit[axis]; // Alternative using axis string as key
+
+                if (dimSize < 2) { // Should ideally be caught above
+                     spaces.push(spaceToSplit);
+                     console.warn("Dimension < 2 on selected axis:", axis, dimSize);
+                     continue;
+                }
+
+                const randomFactor = 0.4 + Math.random() * 0.2;
+                splitCoord = Math.floor(dimSize * randomFactor);
+                if (splitCoord <= 0) splitCoord = 1;
+                if (splitCoord >= dimSize) splitCoord = dimSize - 1;
+
+                const space1 = { ...spaceToSplit };
+                const space2 = { ...spaceToSplit };
+
+                switch (axis) {
+                    case 'x':
+                        space1.w = splitCoord;
+                        space2.x = spaceToSplit.x + splitCoord;
+                        space2.w = spaceToSplit.w - splitCoord;
+                        break;
+                    case 'y':
+                        space1.h = splitCoord;
+                        space2.y = spaceToSplit.y + splitCoord;
+                        space2.h = spaceToSplit.h - splitCoord;
+                        break;
+                    case 'z':
+                        space1.d = splitCoord;
+                        space2.z = spaceToSplit.z + splitCoord;
+                        space2.d = spaceToSplit.d - splitCoord;
+                        break;
+                }
+
+                 if(space1.w > 0 && space1.h > 0 && space1.d > 0) spaces.push(space1);
+                 if(space2.w > 0 && space2.h > 0 && space2.d > 0) spaces.push(space2);
+            }
+
+             // Convert final spaces to boxes
+             spaces.forEach(space => {
+                  if (boxes.length < count) { // Ensure we don't exceed count due to edge cases
+                     boxes.push({
+                         id: boxIdCounter++,
+                         x: space.x, y: space.y, z: space.z,
+                         w: space.w, h: space.h, d: space.d,
+                         volume: space.w * space.h * space.d
+                     });
+                  }
+             });
+
+            // --- Verification Logs ---
+            let totalVolume = 0;
+            boxes.forEach(b => totalVolume += b.volume);
+            const expectedVolume = containerW * containerH * containerD;
+            console.log(`--- Box Generation Complete ---`);
+            console.log(`Target Count: ${count}, Generated Count: ${boxes.length}`);
+            console.log(`Target Volume: ${expectedVolume.toLocaleString()}`);
+            console.log(`Sum of Box Volumes: ${totalVolume.toLocaleString()}`);
+            if (boxes.length !== count && spaces.length > 0) {
+                console.warn(`Could only generate ${boxes.length} boxes. Smallest remaining space might be unsplittable.`);
+            }
+            if (totalVolume !== expectedVolume && boxes.length === count) {
+                 console.warn("Volume mismatch detected!");
+            }
+            // Uniqueness check (optional)
+            // ... (same uniqueness check code as before) ...
+            console.log(`-----------------------------`);
+
+            return boxes;
+        }
+
+        // --- Clear Old Boxes ---
+        // Removes existing internal boxes from the scene and disposes resources
+        function clearOldBoxes() {
+            console.log(`Clearing ${internalBoxesGroup.children.length} old boxes...`);
+            // Deselect any currently selected box
+            deselectBox();
+
+            // Remove meshes from the group and dispose geometry/material
+            // Iterate backwards when removing items from an array/group
+            for (let i = internalBoxesGroup.children.length - 1; i >= 0; i--) {
+                const mesh = internalBoxesGroup.children[i];
+
+                // Dispose outline geometry/material (if it exists as the first child)
+                if (mesh.children.length > 0 && mesh.children[0].geometry && mesh.children[0].material) {
+                    mesh.children[0].geometry.dispose();
+                    mesh.children[0].material.dispose();
+                     // No need to explicitly remove child outline, it's removed with parent mesh
+                }
+
+                // Dispose main mesh geometry and material
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) {
+                    // If material was cloned for highlighting, ensure original is disposed too (if stored)
+                    if (mesh.userData.originalMaterial && mesh.userData.originalMaterial !== mesh.material) {
+                         mesh.userData.originalMaterial.dispose();
+                    }
+                    mesh.material.dispose();
+                }
+                // Remove mesh from the group
+                internalBoxesGroup.remove(mesh);
+            }
+            // Clear the array used for raycasting
+            clickableBoxes = [];
+             console.log("Clearing complete.");
+        }
+
+        // --- Regenerate Internal Boxes ---
+        // Clears old boxes, generates new ones based on 'n', and adds them to the scene
+        function regenerateInternalBoxes(n) {
+            if (typeof n !== 'number' || n < 2) {
+                console.error("Invalid number of boxes requested:", n);
+                alert("Please enter a valid number of boxes (minimum 2).");
+                return;
+            }
+            console.log(`Regenerating with ${n} boxes...`);
+
+            // 1. Clear existing boxes
+            clearOldBoxes();
+
+            // 2. Generate new box data
+            const boxData = generateBoxes(containerDimensions.w, containerDimensions.h, containerDimensions.d, n);
+
+            // 3. Output new data as JSON
+            const boxDataJson = JSON.stringify(boxData, null, 2);
+            jsonOutputTextarea.value = boxDataJson;
+            // Optionally log to console as well
+            // console.log("--- Generated Box Data (JSON) ---");
+            // console.log(boxDataJson);
+            // console.log("---------------------------------");
+
+            // 4. Create and add new meshes
+            boxData.forEach(box => {
+                const geometry = new THREE.BoxGeometry(box.w, box.h, box.d);
+                const randomColor = Math.random() * 0xffffff;
+                const material = new THREE.MeshStandardMaterial({
+                    color: randomColor,
+                    metalness: 0.2,
+                    roughness: 0.8,
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(
+                    box.x + box.w / 2,
+                    box.y + box.h / 2,
+                    box.z + box.d / 2
+                );
+
+                 const boxEdges = new THREE.EdgesGeometry( geometry );
+                 const boxOutlineMat = new THREE.LineBasicMaterial( { color: 0xffffff, transparent: true, opacity: 0.3 } );
+                 const boxOutline = new THREE.LineSegments( boxEdges, boxOutlineMat );
+                 mesh.add( boxOutline );
+
+                mesh.userData = {
+                    id: box.id,
+                    dimensions: { w: box.w, h: box.h, d: box.d },
+                    volume: box.volume,
+                    originalMaterial: material,
+                    outlineMaterial: boxOutlineMat
+                };
+
+                internalBoxesGroup.add(mesh);
+                clickableBoxes.push(mesh); // Add to array for interaction
+            });
+             console.log(`Added ${internalBoxesGroup.children.length} new meshes to the scene.`);
+        }
+
+
+        // --- ThreeJS Initialization ---
+        function init() {
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 10, 5000);
+             camera.position.set(containerDimensions.w * 0.8, containerDimensions.h * 1.0, containerDimensions.d * 0.8);
+             camera.lookAt(0, 0, 0);
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // OrbitControls setup
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+             controls.target.set(containerDimensions.w / 2, containerDimensions.h / 2, containerDimensions.d / 2);
+             controls.update();
+
+            // Lighting setup
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight);
+
+            // Raycaster setup
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // --- Create Static Geometry (Container) ---
+            const containerGeo = new THREE.BoxGeometry(containerDimensions.w, containerDimensions.h, containerDimensions.d);
+            const containerMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.15, depthWrite: false });
+            containerMesh = new THREE.Mesh(containerGeo, containerMat);
+            containerMesh.position.set(containerDimensions.w / 2, containerDimensions.h / 2, containerDimensions.d / 2);
+            scene.add(containerMesh);
+
+             const edges = new THREE.EdgesGeometry( containerGeo );
+             const lineMat = new THREE.LineBasicMaterial( { color: 0xffffff } );
+             containerWireframe = new THREE.LineSegments( edges, lineMat );
+             containerWireframe.position.copy(containerMesh.position);
+             scene.add( containerWireframe );
+
+            // --- Setup Group for Internal Boxes ---
+            internalBoxesGroup = new THREE.Group();
+            scene.add(internalBoxesGroup);
+
+            // --- Initial Box Generation ---
+            const initialBoxCount = parseInt(boxCountInput.value, 10) || 55; // Read default value
+            regenerateInternalBoxes(initialBoxCount); // Generate initial set
+
+            // --- Event Listeners Setup ---
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('pointerdown', onPointerDown);
+            visibilityToggle.addEventListener('change', onVisibilityToggleChange);
+
+            // Listener for the Regenerate Button
+            regenerateButton.addEventListener('click', () => {
+                const n = parseInt(boxCountInput.value, 10);
+                // Basic validation
+                const minBoxes = parseInt(boxCountInput.min, 10) || 2;
+                const maxBoxes = parseInt(boxCountInput.max, 10) || 1000; // Set a reasonable upper limit
+                if (isNaN(n) || n < minBoxes || n > maxBoxes) {
+                    alert(`Please enter a number of boxes between ${minBoxes} and ${maxBoxes}.`);
+                    boxCountInput.focus(); // Focus the input field
+                    return;
+                }
+                regenerateInternalBoxes(n);
+            });
+
+            // Initialize UI states
+            resetInfoPanel();
+            visibilityToggle.checked = false;
+            visibilityToggle.disabled = true;
+        }
+
+        // --- Event Handlers ---
+        // (onWindowResize, onPointerDown, onVisibilityToggleChange remain the same)
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function onPointerDown(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            // IMPORTANT: Only intersect with the current clickableBoxes array
+            const intersects = raycaster.intersectObjects(clickableBoxes);
+
+            if (intersects.length > 0) {
+                const clickedObject = intersects[0].object;
+                 if (clickedObject !== selectedBoxMesh) {
+                     selectBox(clickedObject);
+                 } else {
+                     deselectBox();
+                 }
+            } else {
+                 if (selectedBoxMesh) {
+                     deselectBox();
+                 }
+            }
+        }
+
+        function onVisibilityToggleChange() {
+            if (selectedBoxMesh) {
+                const isVisible = !visibilityToggle.checked;
+                selectedBoxMesh.visible = isVisible;
+                 if (selectedBoxMesh.children.length > 0 && selectedBoxMesh.children[0] instanceof THREE.LineSegments) {
+                    selectedBoxMesh.children[0].visible = isVisible;
+                 }
+            }
+        }
+
+        // --- Interaction Logic ---
+        // (deselectBox, selectBox, resetInfoPanel remain the same)
+         function deselectBox() {
+             if (selectedBoxMesh) {
+                 // Restore original material if it was cloned/changed
+                 if (selectedBoxMesh.userData.originalMaterial) {
+                     selectedBoxMesh.material = selectedBoxMesh.userData.originalMaterial;
+                 }
+                  // Restore outline appearance
+                  if (selectedBoxMesh.userData.outlineMaterial) {
+                     selectedBoxMesh.userData.outlineMaterial.color.set(0xffffff);
+                     selectedBoxMesh.userData.outlineMaterial.opacity = 0.3;
+                  }
+                 selectedBoxMesh = null;
+                 resetInfoPanel();
+                 visibilityToggle.checked = false;
+                 visibilityToggle.disabled = true;
+             }
+         }
+
+         function selectBox(boxMesh) {
+             deselectBox();
+             selectedBoxMesh = boxMesh;
+
+              // Apply highlight effect (clone material before changing)
+              if (selectedBoxMesh.userData.originalMaterial) {
+                  selectedBoxMesh.material = selectedBoxMesh.userData.originalMaterial.clone();
+                  selectedBoxMesh.material.color.setHex(highlightColor);
+              } else { // Fallback if original wasn't stored properly
+                   selectedBoxMesh.material.color.setHex(highlightColor);
+              }
+              // Make outline more prominent
+               if (selectedBoxMesh.userData.outlineMaterial) {
+                  selectedBoxMesh.userData.outlineMaterial.color.setHex(highlightColor);
+                  selectedBoxMesh.userData.outlineMaterial.opacity = 0.9;
+               }
+
+             // Update Info Panel
+             infoPanel.title.textContent = `Selected Box Info`;
+             infoPanel.defaultText.style.display = 'none';
+             infoPanel.id.textContent = `ID: ${selectedBoxMesh.userData.id}`;
+             const dims = selectedBoxMesh.userData.dimensions;
+             infoPanel.dims.textContent = `Dimensions: ${dims.w} x ${dims.h} x ${dims.d}`;
+             infoPanel.vol.textContent = `Volume: ${selectedBoxMesh.userData.volume.toLocaleString()}`;
+
+             // Update and enable visibility toggle
+             visibilityToggle.checked = !selectedBoxMesh.visible;
+             visibilityToggle.disabled = false;
+         }
+
+         function resetInfoPanel() {
+             infoPanel.title.textContent = `Box Information`;
+             infoPanel.defaultText.style.display = 'block';
+             infoPanel.id.textContent = `ID: -`;
+             infoPanel.dims.textContent = `Dimensions: -`;
+             infoPanel.vol.textContent = `Volume: -`;
+         }
+
+        // --- Animation Loop ---
+        // (animate function remains the same)
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- Start Application ---
+        init();
+        animate();
+
+    </script>
+</body>
+</html>

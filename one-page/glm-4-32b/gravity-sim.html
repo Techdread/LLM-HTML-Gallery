@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spacetime Gravity Well Simulation</title>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #0a0a0a;
+            color: #f0f0f0;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #controls-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(20, 20, 30, 0.8);
+            border-radius: 10px;
+            padding: 20px;
+            width: 300px;
+            z-index: 2;
+            box-shadow: 0 0 20px rgba(0, 140, 255, 0.3);
+            border: 1px solid rgba(0, 140, 255, 0.5);
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        h2 {
+            margin-bottom: 15px;
+            color: #00a8ff;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        h3 {
+            margin-bottom: 10px;
+            color: #00a8ff;
+            font-size: 14px;
+        }
+
+        label {
+            display: block;
+            margin: 5px 0;
+            font-size: 14px;
+        }
+
+        input[type="range"],
+        input[type="number"] {
+            width: 100%;
+            margin: 5px 0;
+            padding: 5px;
+            background-color: rgba(30, 30, 40, 0.8);
+            border: 1px solid #00a8ff;
+            border-radius: 4px;
+            color: #f0f0f0;
+        }
+
+        input[type="number"] {
+            width: 60px;
+            display: inline-block;
+        }
+
+        button {
+            background-color: #00a8ff;
+            color: #fff;
+            border: none;
+            padding: 8px 15px;
+            margin: 5px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            width: 100%;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background-color: #0088cc;
+        }
+
+        .color-picker {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 5px;
+        }
+
+        .color-option {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: transform 0.2s;
+        }
+
+        .color-option:hover {
+            transform: scale(1.1);
+        }
+
+        .color-option.selected {
+            border: 2px solid white;
+        }
+
+        .info-text {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        .toggle-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(20, 20, 30, 0.8);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 3;
+            box-shadow: 0 0 10px rgba(0, 140, 255, 0.3);
+            border: 1px solid rgba(0, 140, 255, 0.5);
+            transition: all 0.3s;
+        }
+
+        .toggle-panel:hover {
+            background-color: rgba(30, 30, 50, 0.9);
+        }
+
+        .toggle-panel i {
+            font-size: 20px;
+            color: #00a8ff;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .help-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(20, 20, 30, 0.8);
+            border-radius: 10px;
+            padding: 15px;
+            max-width: 300px;
+            z-index: 2;
+            box-shadow: 0 0 20px rgba(0, 140, 255, 0.3);
+            border: 1px solid rgba(0, 140, 255, 0.5);
+        }
+
+        .help-panel ul {
+            margin-left: 20px;
+        }
+
+        .help-panel li {
+            margin: 5px 0;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .button-group button {
+            flex: 1;
+        }
+
+        .mode-indicator {
+            position: absolute;
+            top: 80px;
+            right: 20px;
+            padding: 5px 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+</head>
+
+<body>
+    <div id="canvas-container"></div>
+
+    <div class="toggle-panel" id="toggle-controls">
+        <i class="fas fa-cog"></i>
+    </div>
+
+    <div id="controls-panel">
+        <h2>Gravity Well Simulator</h2>
+
+        <div class="control-group">
+            <h3>Massive Object</h3>
+            <label>Mass: <span id="mass-value">50</span></label>
+            <input type="range" id="mass-slider" min="10" max="200" value="50">
+
+            <label>Object Color:</label>
+            <div class="color-picker" id="object-colors">
+                <div class="color-option selected" style="background-color: #ff5555;" data-color="#ff5555"></div>
+                <div class="color-option" style="background-color: #55ff55;" data-color="#55ff55"></div>
+                <div class="color-option" style="background-color: #5555ff;" data-color="#5555ff"></div>
+                <div class="color-option" style="background-color: #ffff55;" data-color="#ffff55"></div>
+                <div class="color-option" style="background-color: #ff55ff;" data-color="#ff55ff"></div>
+            </div>
+
+            <button id="add-object" class="button-group">
+                <span>A SVG subtract Subtract</span>
+            </button>
+
+            <p class="info-text">Click anywhere on the grid to place a massive object</p>
+
+            <button id="clear-objects">Clear All Objects</button>
+        </div>
+
+        <div class="control-group">
+            <h3>Test Particle</h3>
+            <label>Initial Velocity:</label>
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <input type="number" id="velocity-x" min="-20" max="20" value="5" step="0.5">
+                <span>X</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <input type="number" id="velocity-y" min="-20" max="20" value="0" step="0.5">
+                <span>Y</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <input type="number" id="velocity-z" min="-20" max="20" value="0" step="0.5">
+                <span>Z</span>
+            </div>
+
+            <div class="button-group">
+                <button id="launch-particle">Launch</button>
+                <button id="clear-particles">Clear</button>
+            </div>
+
+            <p class="info-text">Click and drag to aim, then release to launch a particle</p>
+        </div>
+
+        <div class="control-group">
+            <h3>Simulation Controls</h3>
+            <button id="toggle-simulation">Pause Simulation</button>
+            <button id="toggle-wireframe">Toggle Wireframe</button>
+        </div>
+    </div>
+
+    <div class="mode-indicator" id="mode-display">
+        Mode: Place Massive Object
+    </div>
+
+    <div class="help-panel">
+        <h3><i class="fas fa-info-circle"></i> How to Use</h3>
+        <ul>
+            <li>Use mouse to rotate the view (Alt+Click to pan)</li>
+            <li>Set mass and color, then click on grid to place objects</li>
+            <li>Set initial velocity, then click and drag to aim, release to launch</li>
+            <li>Particles will follow curved paths around massive objects</li>
+            <li>The grid represents spacetime, deforming around massive objects</li>
+        </ul>
+    </div>
+
+    <script>
+        // Main variables
+        let scene, camera, renderer, controls;
+        let grid, gridGeometry;
+        let massiveObjects = [];
+        let particles = [];
+        let raycaster, mouse;
+        let isSimulationRunning = true;
+
+        // Mode tracking
+        let currentMode = "place-massive-object"; // or "place-particle"
+
+        // Physics constants
+        const G = 0.1; // Gravitational constant for the simulation
+
+        // Initialize the simulation
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111122);
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 50, 0);
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // Add orbit controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 1);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+
+            // Create coordinate grid
+            createGrid();
+
+            // Raycaster for interaction
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Add event listeners
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('click', onMouseClick);
+            renderer.domElement.addEventListener('mousedown', onMouseDown);
+            renderer.domElement.addEventListener('mouseup', onMouseUp);
+            renderer.domElement.addEventListener('mousemove', onMouseMove);
+
+            // Start animation loop
+            animate();
+        }
+
+        function createGrid() {
+            const gridSize = 100;
+            const gridDivisions = 20;
+
+            // Create grid plane
+            gridGeometry = new THREE.PlaneGeometry(gridSize, gridSize, gridDivisions, gridDivisions);
+            const gridMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00a8ff,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.5
+            });
+
+            grid = new THREE.Mesh(gridGeometry, gridMaterial);
+            grid.rotation.x = -Math.PI / 2;
+            grid.position.y = 0;
+            scene.add(grid);
+
+            // Add a reference grid on the bottom
+            const referenceGridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x444444, 0x222222);
+            referenceGridHelper.position.y = -0.1;
+            scene.add(referenceGridHelper);
+        }
+
+        function addMassiveObject(position, mass, color) {
+            const radius = Math.cbrt(mass) * 0.2;
+            const geometry = new THREE.SphereGeometry(radius, 32, 32);
+            const material = new THREE.MeshStandardMaterial({
+                color: color,
+                metalness: 0.7,
+                roughness: 0.2
+            });
+
+            const object = new THREE.Mesh(geometry, material);
+            object.position.copy(position);
+            object.userData = { type: 'massiveObject', mass: mass };
+
+            scene.add(object);
+            massiveObjects.push(object);
+
+            return object;
+        }
+
+        function addParticle(position, velocity, color) {
+            const geometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const material = new THREE.MeshBasicMaterial({ color: color });
+
+            const particle = new THREE.Mesh(geometry, material);
+            particle.position.copy(position);
+            particle.userData = {
+                type: 'particle',
+                velocity: velocity,
+                path: [],
+                pathLine: null
+            };
+
+            // Create path line
+            const lineMaterial = new THREE.LineBasicMaterial({ color: color });
+            const lineGeometry = new THREE.BufferGeometry();
+            const pathLine = new THREE.Line(lineGeometry, lineMaterial);
+
+            scene.add(particle);
+            scene.add(pathLine);
+
+            particle.userData.pathLine = pathLine;
+            particle.userData.path.push(new THREE.Vector3().copy(position));
+
+            particles.push(particle);
+
+            return particle;
+        }
+
+        function deformGrid() {
+            if (!grid) return;
+
+            const positions = gridGeometry.attributes.position;
+            const initialY = [];
+
+            // Store initial Y values and reset to flat
+            for (let i = 0; i < positions.count; i++) {
+                initialY[i] = positions.getY(i);
+                positions.setY(i, 0);
+            }
+
+            // Apply deformation from each massive object
+            for (let i = 0; i < positions.count; i++) {
+                const x = positions.getX(i);
+                const z = positions.getZ(i);
+
+                // Reset height
+                positions.setY(i, initialY[i] - 0.01);
+
+                // Apply gravitational deformation
+                for (const obj of massiveObjects) {
+                    const dx = x - obj.position.x;
+                    const dz = z - obj.position.z;
+                    const distanceSquared = dx * dx + dz * dz;
+
+                    if (distanceSquared > 0.1) {
+                        const distance = Math.sqrt(distanceSquared);
+                        const mass = obj.userData.mass;
+                        // Generate negative 'y' to represent spacetime curving 'down'
+                        const deformation = mass * 20 / (distance * distance + mass * 0.5);
+                        positions.setY(i, positions.getY(i) - deformation);
+                    }
+                }
+            }
+
+            positions.needsUpdate = true;
+            gridGeometry.computeVertexNormals();
+        }
+
+        function updateParticleMovements() {
+            if (!isSimulationRunning) return;
+
+            for (let i = 0; i < particles.length; i++) {
+                const particle = particles[i];
+
+                // Calculate gravitational forces from all massive objects
+                let totalForceX = 0;
+                let totalForceY = 0;
+                let totalForceZ = 0;
+
+                for (const obj of massiveObjects) {
+                    const dx = obj.position.x - particle.position.x;
+                    const dy = obj.position.y - particle.position.y;
+                    const dz = obj.position.z - particle.position.z;
+
+                    const distanceSquared = dx * dx + dy * dy + dz * dz;
+                    const distance = Math.sqrt(distanceSquared);
+
+                    if (distance > 0.5) { // Avoid division by zero and extreme forces
+                        const forceMagnitude = G * obj.userData.mass / distanceSquared;
+
+                        totalForceX += forceMagnitude * dx / distance;
+                        totalForceY += forceMagnitude * dy / distance;
+                        totalForceZ += forceMagnitude * dz / distance;
+                    }
+                }
+
+                // Update velocity based on force
+                particle.userData.velocity.x += totalForceX * 0.01;
+                particle.userData.velocity.y += totalForceY * 0.01;
+                particle.userData.velocity.z += totalForceZ * 0.01;
+
+                // Apply drag to prevent infinite acceleration
+                const dragFactor = 0.995;
+                particle.userData.velocity.x *= dragFactor;
+                particle.userData.velocity.y *= dragFactor;
+                particle.userData.velocity.z *= dragFactor;
+
+                // Update position based on velocity
+                particle.position.x += particle.userData.velocity.x * 0.1;
+                particle.position.y += particle.userData.velocity.y * 0.1;
+                particle.position.z += particle.userData.velocity.z * 0.1;
+
+                // Add current position to path
+                particle.userData.path.push(new THREE.Vector3().copy(particle.position));
+
+                // Keep path a reasonable length
+                if (particle.userData.path.length > 1000) {
+                    particle.userData.path.shift();
+                }
+
+                // Update path line
+                const path = particle.userData.path;
+                const pathLine = particle.userData.pathLine;
+
+                const lineGeometry = new THREE.BufferGeometry().setFromPoints(path);
+                pathLine.geometry.dispose();
+                pathLine.geometry = lineGeometry;
+
+                // Check if particle is out of bounds
+                if (Math.abs(particle.position.x) > 100 ||
+                    Math.abs(particle.position.y) > 100 ||
+                    Math.abs(particle.position.z) > 100) {
+
+                    scene.remove(particle);
+                    scene.remove(pathLine);
+                    particles.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+
+        // Event handlers
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function onMouseClick(event) {
+            if (currentMode !== "place-massive-object") return;
+
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Update the picking ray with the camera and mouse position
+            raycaster.setFromCamera(mouse, camera);
+
+            // Calculate intersections with the grid
+            const intersects = raycaster.intersectObject(grid);
+
+            if (intersects.length > 0) {
+                const point = intersects[0].point;
+                const mass = parseFloat(document.getElementById('mass-slider').value);
+                const activeColor = document.querySelector('.color-option.selected').getAttribute('data-color');
+
+                addMassiveObject(point, mass, activeColor);
+                deformGrid();
+            }
+        }
+
+        let isDragging = false;
+        let dragStartPoint = null;
+
+        function onMouseDown(event) {
+            if (event.button !== 0) return; // Only left mouse button
+
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Update the picking ray with the camera and mouse position
+            raycaster.setFromCamera(mouse, camera);
+
+            // Set dragging mode
+            isDragging = true;
+            currentMode = "place-particle";
+
+            // Store the starting point
+            const intersects = raycaster.intersectObject(grid, true);
+            if (intersects.length > 0) {
+                dragStartPoint = intersects[0].point;
+                document.getElementById('mode-display').textContent = 'Mode: Drag to Launch Particle';
+            }
+        }
+
+        function onMouseMove(event) {
+            if (isDragging && dragStartPoint) {
+                // Update mouse position
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                // Calculate aim point
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(grid, true);
+
+                if (intersects.length > 0) {
+                    const endPoint = intersects[0].point;
+
+                    // This is where we would display the aiming line
+                    // For now, we'll just update the velocity inputs based on the drag
+                    const vec = new THREE.Vector3().subVectors(dragStartPoint, endPoint);
+                    const velocityScale = 0.1;
+
+                    document.getElementById('velocity-x').value = -vec.x * velocityScale;
+                    document.getElementById('velocity-y').value = -vec.y * velocityScale;
+                    document.getElementById('velocity-z').value = -vec.z * velocityScale;
+                }
+            }
+        }
+
+        function onMouseUp(event) {
+            if (isDragging && dragStartPoint && currentMode === "place-particle") {
+                // Update mouse position
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                // Calculate launch point
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(grid, true);
+
+                if (intersects.length > 0) {
+                    // Get velocity components from input fields
+                    const vx = parseFloat(document.getElementById('velocity-x').value);
+                    const vy = parseFloat(document.getElementById('velocity-y').value);
+                    const vz = parseFloat(document.getElementById('velocity-z').value);
+
+                    // Launch particle
+                    const particle = addParticle(
+                        new THREE.Vector3().copy(dragStartPoint),
+                        new THREE.Vector3(vx, vy, vz),
+                        document.querySelector('.color-option.selected').getAttribute('data-color')
+                    );
+                }
+            }
+
+            isDragging = false;
+            dragStartPoint = null;
+            currentMode = "place-massive-object";
+            document.getElementById('mode-display').textContent = 'Mode: Place Massive Object';
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            controls.update();
+            updateParticleMovements();
+
+            // Render the scene
+            renderer.render(scene, camera);
+        }
+
+        // Initialize UI controls
+        function initControls() {
+            // Mass slider
+            const massSlider = document.getElementById('mass-slider');
+            const massValue = document.getElementById('mass-value');
+
+            massSlider.addEventListener('input', function () {
+                massValue.textContent = this.value;
+            });
+
+            // Color selection
+            const colorOptions = document.querySelectorAll('.color-option');
+            colorOptions.forEach(option => {
+                option.addEventListener('click', function () {
+                    document.querySelector('.color-option.selected').classList.remove('selected');
+                    this.classList.add('selected');
+                    updateGridDeformation();
+                });
+            });
+
+            // Add massive object button
+            document.getElementById('add-object').addEventListener('click', function () {
+                const activeColor = document.querySelector('.color-option.selected').getAttribute('data-color');
+                const mass = parseFloat(document.getElementById('mass-slider').value);
+
+                // Place at a default position
+                const position = new THREE.Vector3(0, 0, 0);
+                addMassiveObject(position, mass, activeColor);
+                deformGrid();
+            });
+
+            // Clear objects button
+            document.getElementById('clear-objects').addEventListener('click', function () {
+                massiveObjects.forEach(obj => {
+                    scene.remove(obj);
+                });
+                massiveObjects = [];
+                deformGrid();
+            });
+
+            // Clear particles button
+            document.getElementById('clear-particles').addEventListener('click', function () {
+                particles.forEach(particle => {
+                    scene.remove(particle);
+                    scene.remove(particle.userData.pathLine);
+                });
+                particles = [];
+            });
+
+            // Launch particle button
+            document.getElementById('launch-particle').addEventListener('click', function () {
+                const mass = parseFloat(document.getElementById('mass-slider').value);
+                const vx = parseFloat(document.getElementById('velocity-x').value);
+                const vy = parseFloat(document.getElementById('velocity-y').value);
+                const vz = parseFloat(document.getElementById('velocity-z').value);
+                const activeColor = document.querySelector('.color-option.selected').getAttribute('data-color');
+
+                // Launch from a default position
+                const position = new THREE.Vector3(20, 1, 0);
+                const velocity = new THREE.Vector3(vx, vy, vz);
+                addParticle(position, velocity, activeColor);
+            });
+
+            // Toggle simulation button
+            const toggleSimBtn = document.getElementById('toggle-simulation');
+            toggleSimBtn.addEventListener('click', function () {
+                isSimulationRunning = !isSimulationRunning;
+                this.textContent = isSimulationRunning ? "Pause Simulation" : "Resume Simulation";
+            });
+
+            // Toggle wireframe button
+            const toggleWireframeBtn = document.getElementById('toggle-wireframe');
+            toggleWireframeBtn.addEventListener('click', function () {
+                grid.material.wireframe = !grid.material.wireframe;
+            });
+
+            // Toggle controls panel
+            const toggleControlsBtn = document.getElementById('toggle-controls');
+            const controlsPanel = document.getElementById('controls-panel');
+            toggleControlsBtn.addEventListener('click', function () {
+                controlsPanel.classList.toggle('hidden');
+                toggleControlsBtn.innerHTML = controlsPanel.classList.contains('hidden')
+                    ? '<i class="fas fa-cog"></i>'
+                    : '<i class="fas fa-times"></i>';
+            });
+        }
+
+        // Initialize the simulation
+        window.addEventListener('DOMContentLoaded', function () {
+            init();
+            initControls();
+
+            // Set default values
+            document.getElementById('mass-slider').addEventListener('input', function () {
+                document.getElementById('mass-value').textContent = this.value;
+            });
+        });
+
+        // Function to update grid deformation based on current massive objects
+        function updateGridDeformation() {
+            deformGrid();
+        }
+
+        // Initialize the controls panel
+        initControls();
+    </script>
+</body>
+
+</html>

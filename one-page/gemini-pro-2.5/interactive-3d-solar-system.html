@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D Solar System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui-controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 250px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        #planet-info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.9em;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            min-width: 200px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 3px;
+            font-weight: 500;
+        }
+
+        select,
+        button,
+        input[type="range"] {
+            width: 100%;
+            padding: 5px 8px;
+            border-radius: 4px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #fff;
+            cursor: pointer;
+        }
+
+        button {
+            background-color: rgba(79, 70, 229, 0.8);
+            /* Indigo */
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: rgba(67, 56, 202, 0.9);
+        }
+
+        input[type="range"] {
+            cursor: grab;
+        }
+
+        input[type="range"]:active {
+            cursor: grabbing;
+        }
+
+        select option {
+            background-color: #333;
+            color: #fff;
+        }
+
+        h3 {
+            font-size: 1.1em;
+            margin-bottom: 5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding-bottom: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="solarSystemCanvas"></canvas>
+
+    <div id="ui-controls">
+        <h3 class="text-lg font-semibold mb-2 border-b border-gray-600 pb-1">Controls</h3>
+        <div>
+            <label for="timeSpeed">Time Speed:</label>
+            <input type="range" id="timeSpeed" min="0" max="10" value="1" step="0.1">
+        </div>
+        <div>
+            <button id="pauseButton">Pause</button>
+        </div>
+        <div>
+            <label for="focusSelect">Focus:</label>
+            <select id="focusSelect">
+                <option value="sun">Sun</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="planet-info">
+        <h3>Selected Body</h3>
+        <p id="info-name">Name: Sun</p>
+        <p id="info-distance">Distance: N/A</p>
+        <p id="info-period">Orbital Period: N/A</p>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('solarSystemCanvas'), antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio); // Improve sharpness on high DPI screens
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0x333333); // Soft ambient light
+        scene.add(ambientLight);
+
+        // --- Controls ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Smooth camera movement
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = false; // Pan moves parallel to ground plane
+        controls.minDistance = 1;
+        controls.maxDistance = 1000;
+
+        // --- Sun ---
+        const sunGeometry = new THREE.SphereGeometry(5, 32, 32); // Radius 5
+        const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: false }); // Emissive yellow
+        const sunMesh = new THREE.Mesh(sunGeometry, sunMaterial);
+        scene.add(sunMesh);
+
+        // Add point light source at the sun's center
+        const pointLight = new THREE.PointLight(0xffffff, 3, 2000); // White light, intensity 3, range 2000
+        sunMesh.add(pointLight); // Attach light to the sun mesh
+
+        // --- Planets Data ---
+        // Simplified orbital data (distances scaled down)
+        // a = semi-major axis, e = eccentricity, period = orbital period (relative)
+        // size = visual radius in the simulation
+        const planetsData = [
+            { name: "Mercury", size: 0.5, color: 0xaaaaaa, a: 10, e: 0.206, period: 0.24 },
+            { name: "Venus", size: 0.9, color: 0xffe4b5, a: 15, e: 0.007, period: 0.62 },
+            { name: "Earth", size: 1.0, color: 0x4682b4, a: 20, e: 0.017, period: 1.0 },
+            { name: "Mars", size: 0.7, color: 0xff4500, a: 30, e: 0.093, period: 1.88 },
+            { name: "Jupiter", size: 3.5, color: 0xd2b48c, a: 50, e: 0.048, period: 11.86 },
+            { name: "Saturn", size: 3.0, color: 0xf4a460, a: 70, e: 0.056, period: 29.46 },
+            // Add Uranus and Neptune if desired
+        ];
+
+        const planetMeshes = [];
+        const orbitPaths = [];
+        const focusSelect = document.getElementById('focusSelect');
+        const planetInfoName = document.getElementById('info-name');
+        const planetInfoDistance = document.getElementById('info-distance');
+        const planetInfoPeriod = document.getElementById('info-period');
+
+        // --- Create Planets and Orbits ---
+        planetsData.forEach(data => {
+            // Planet Mesh
+            const geometry = new THREE.SphereGeometry(data.size, 32, 32);
+            // Use MeshStandardMaterial for better lighting effects
+            const material = new THREE.MeshStandardMaterial({
+                color: data.color,
+                metalness: 0.3, // Adjust for appearance
+                roughness: 0.8, // Adjust for appearance
+                wireframe: false
+            });
+            const planetMesh = new THREE.Mesh(geometry, material);
+            planetMesh.userData = data; // Store planet data in the mesh
+            scene.add(planetMesh);
+            planetMeshes.push(planetMesh);
+
+            // Orbit Path (Simplified Ellipse centered at Sun)
+            const semiMajorAxis = data.a;
+            const semiMinorAxis = data.a * Math.sqrt(1 - data.e * data.e); // b = a * sqrt(1 - e^2)
+            const curve = new THREE.EllipseCurve(
+                0, 0,             // Center x, y (Sun's position)
+                semiMajorAxis, semiMinorAxis, // xRadius, yRadius
+                0, 2 * Math.PI,   // StartAngle, EndAngle
+                false,            // Clockwise
+                0                 // Rotation
+            );
+
+            const points = curve.getPoints(100); // Get 100 points along the ellipse
+            const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            const orbitMaterial = new THREE.LineBasicMaterial({ color: 0x555555 }); // Dim white/grey
+            const orbitLine = new THREE.Line(orbitGeometry, orbitMaterial);
+            orbitLine.rotation.x = Math.PI / 2; // Rotate to align with the XZ plane
+            scene.add(orbitLine);
+            orbitPaths.push(orbitLine);
+
+            // Add option to focus dropdown
+            const option = document.createElement('option');
+            option.value = data.name.toLowerCase();
+            option.textContent = data.name;
+            focusSelect.appendChild(option);
+        });
+
+        // --- Starfield Background ---
+        function createStarfield() {
+            const starVertices = [];
+            for (let i = 0; i < 10000; i++) {
+                const x = THREE.MathUtils.randFloatSpread(1500); // Spread stars across a large area
+                const y = THREE.MathUtils.randFloatSpread(1500);
+                const z = THREE.MathUtils.randFloatSpread(1500);
+                // Ensure stars are far enough away
+                if (Math.sqrt(x * x + y * y + z * z) > 100) { // Don't place stars too close to the center
+                    starVertices.push(x, y, z);
+                }
+            }
+            const starGeometry = new THREE.BufferGeometry();
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.5, // Adjust size of stars
+                sizeAttenuation: true // Stars appear smaller further away
+            });
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+        createStarfield();
+
+
+        // --- Camera Initial Position ---
+        camera.position.set(0, 50, 100); // Start looking from above and slightly away
+        controls.target.set(0, 0, 0); // Look at the sun initially
+        controls.update(); // Important after setting target
+
+        // --- Simulation State ---
+        let simulationTime = 0;
+        let simulationSpeed = 1; // Multiplier for time speed
+        let isPaused = false;
+        let focusedObject = sunMesh; // Start focused on the sun
+
+        // --- UI Event Listeners ---
+        const timeSpeedSlider = document.getElementById('timeSpeed');
+        const pauseButton = document.getElementById('pauseButton');
+
+        timeSpeedSlider.addEventListener('input', (event) => {
+            simulationSpeed = parseFloat(event.target.value);
+            if (simulationSpeed === 0) {
+                isPaused = true;
+                pauseButton.textContent = 'Resume';
+            } else if (isPaused) {
+                isPaused = false;
+                pauseButton.textContent = 'Pause';
+            }
+        });
+
+        pauseButton.addEventListener('click', () => {
+            isPaused = !isPaused;
+            pauseButton.textContent = isPaused ? 'Resume' : 'Pause';
+            if (!isPaused && simulationSpeed === 0) {
+                simulationSpeed = 0.1; // Set a small speed if resuming from 0
+                timeSpeedSlider.value = simulationSpeed;
+            } else if (isPaused) {
+                // Optionally set slider to 0 when pausing via button
+                // timeSpeedSlider.value = 0;
+            }
+        });
+
+        focusSelect.addEventListener('change', (event) => {
+            const selectedValue = event.target.value;
+            if (selectedValue === 'sun') {
+                focusedObject = sunMesh;
+                updatePlanetInfo(sunMesh, true); // Pass true for sun
+            } else {
+                const selectedPlanet = planetMeshes.find(p => p.userData.name.toLowerCase() === selectedValue);
+                if (selectedPlanet) {
+                    focusedObject = selectedPlanet;
+                    updatePlanetInfo(selectedPlanet);
+                }
+            }
+            // Don't immediately jump camera, let OrbitControls handle target update in loop
+        });
+
+        // --- Update Planet Info Display ---
+        function updatePlanetInfo(object, isSun = false) {
+            if (isSun) {
+                planetInfoName.textContent = "Name: Sun";
+                planetInfoDistance.textContent = "Distance: N/A";
+                planetInfoPeriod.textContent = "Orbital Period: N/A";
+            } else if (object && object.userData) {
+                const data = object.userData;
+                const currentDistance = object.position.distanceTo(sunMesh.position).toFixed(2);
+                planetInfoName.textContent = `Name: ${data.name}`;
+                planetInfoDistance.textContent = `Current Distance: ${currentDistance} units`;
+                planetInfoPeriod.textContent = `Orbital Period: ${data.period} (relative Earth years)`;
+            }
+        }
+        // Initial info display
+        updatePlanetInfo(sunMesh, true);
+
+
+        // --- Animation Loop ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const deltaTime = clock.getDelta(); // Time since last frame in seconds
+
+            if (!isPaused) {
+                simulationTime += deltaTime * simulationSpeed;
+
+                // Update planet positions (Simplified Elliptical Orbit)
+                planetMeshes.forEach(planetMesh => {
+                    const data = planetMesh.userData;
+                    const semiMajorAxis = data.a;
+                    const semiMinorAxis = data.a * Math.sqrt(1 - data.e * data.e);
+                    const period = data.period; // Relative period
+
+                    // Calculate angle based on time and period
+                    // Using mean anomaly approximation for angle: M = n * t
+                    // n = 2 * PI / Period (angular speed)
+                    // More accurate would involve Kepler's equation, this is simpler
+                    const meanAngularSpeed = (2 * Math.PI) / (period * 50); // Scale period for visual speed
+                    let currentAngle = (simulationTime * meanAngularSpeed) % (2 * Math.PI);
+
+                    // --- Approximation of Varying Speed (Kepler's 2nd Law) ---
+                    // Calculate distance for speed adjustment (simplified)
+                    // This part is tricky without solving Kepler's equation.
+                    // We can slightly adjust speed based on angle for an *effect*
+                    // Planets move faster near perihelion (closest point)
+                    // For ellipse x=a*cos(t), z=b*sin(t), closest point is at angle=0 (if sun at center)
+                    // Let's make speed slightly higher around angle 0 and PI
+                    // This is NOT physically accurate, just a visual approximation.
+                    const speedFactor = 1 + data.e * Math.cos(currentAngle); // Higher when cos(angle) is positive (closer to x-axis positive)
+                    currentAngle = (simulationTime * meanAngularSpeed * speedFactor) % (2 * Math.PI);
+
+
+                    // Calculate position on the ellipse centered at the sun (0,0,0)
+                    const x = semiMajorAxis * Math.cos(currentAngle);
+                    const z = semiMinorAxis * Math.sin(currentAngle); // Use semiMinorAxis for z
+
+                    planetMesh.position.set(x, 0, z);
+
+                    // Update info if this planet is selected
+                    if (focusedObject === planetMesh) {
+                        updatePlanetInfo(planetMesh);
+                    }
+                });
+            }
+
+            // Update camera target smoothly if focused object changed
+            if (focusedObject) {
+                controls.target.lerp(focusedObject.position, 0.1); // Smoothly move target towards focused object
+            }
+
+            controls.update(); // Required if controls.enableDamping or controls.autoRotate are set
+            renderer.render(scene, camera);
+        }
+
+        // --- Handle Window Resize ---
+        window.addEventListener('resize', () => {
+            // Update camera aspect ratio
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+
+            // Update renderer size
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+        });
+
+        // --- Start Animation ---
+        // Ensure everything is loaded before starting
+        window.onload = () => {
+            animate();
+        }
+
+    </script>
+</body>
+
+</html>

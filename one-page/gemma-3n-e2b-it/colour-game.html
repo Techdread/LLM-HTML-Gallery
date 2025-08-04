@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Color Matcher</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        canvas {
+            border: none;
+        }
+
+        #hud {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: sans-serif;
+            font-size: 16px;
+            color: #fff;
+        }
+
+        #game-over {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 20px;
+            border-radius: 5px;
+            text-align: center;
+            font-size: 20px;
+            z-index: 10;
+        }
+
+        #restart-button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="hud">
+        Score: <span id="score">0</span>
+        Lives: <span id="lives">3</span>
+    </div>
+    <div id="game-over">
+        <p>Game Over!</p>
+        <button id="restart-button">Restart</button>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const canvas = document.getElementById('gameCanvas');
+        const scoreElement = document.getElementById('score');
+        const livesElement = document.getElementById('lives');
+        const restartButton = document.getElementById('restart-button');
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, canvas.width / canvas.height, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas });
+        renderer.setSize(canvas.width, canvas.height);
+        document.body.appendChild(renderer.domElement);
+
+        // --- Color Palette ---
+        const colors = [
+            new THREE.Color(0xff0000), // Red
+            new THREE.Color(0x0000ff), // Blue
+            new THREE.Color(0x00ff00), // Green
+            new THREE.Color(0xffff00)  // Yellow
+        ];
+
+        // --- Player Object ---
+        const player = new THREE.Mesh(new THREE.TorusKnotGeometry(1, 0.5, 16, 16), new THREE.MeshStandardMaterial({ color: 0x000000 }));
+        player.position.set(0, 0, 0);
+        scene.add(player);
+
+        // --- Target Object ---
+        const targetSize = 0.5;
+        const targetSpeed = 2;
+        let targets = [];
+        let targetCount = 0;
+        let gameRunning = true;
+        let score = 0;
+        let lives = 3;
+
+        // --- Function to generate a target ---
+        function createTarget() {
+            const target = new THREE.Mesh(new THREE.SphereGeometry(targetSize), new THREE.MeshStandardMaterial({ color: colors[Math.floor(Math.random() * colors.length)] }));
+            target.position.set(-15, 0, 0); // Spawn off-screen
+            scene.add(target);
+            targets.push(target);
+            targetCount++;
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            if (!gameRunning) return;
+
+            // Update target positions
+            for (const target of targets) {
+                target.position.x += targetSpeed;
+                if (target.position.x > 15) {
+                    target.position.x = -15;
+                    target.position.y = 0;
+                    target.position.z = 0;
+                    targets.splice(targets.indexOf(target), 1); // Remove from array
+                    targetCount--;
+                }
+            }
+
+            // Check for matches
+            for (let i = 0; i < targets.length; i++) {
+                const target = targets[i];
+                const playerColor = player.material.color.r * 255 / 255;
+                const targetColor = target.material.color.r * 255 / 255;
+
+                if (target.position.x === 0 && playerColor === targetColor) {
+                    score++;
+                    targets[i].material.color.set(0xff0000); // Red for match
+                    scene.remove(target);
+                } else if (target.position.x === 0 && playerColor !== targetColor) {
+                    lives--;
+                    targets[i].material.color.set(0x000000); // Reset color
+                    scene.remove(target);
+                }
+            }
+
+            // Update HUD
+            scoreElement.textContent = score;
+            livesElement.textContent = lives;
+
+            // Check if game is over
+            if (lives <= 0) {
+                gameRunning = false;
+                showGameOver();
+            }
+
+            // Request the next frame
+            requestAnimationFrame(animate);
+        }
+
+        // --- Show Game Over Screen ---
+        function showGameOver() {
+            document.getElementById('game-over').style.display = 'block';
+            document.getElementById('restart-button').style.display = 'block';
+            gameRunning = false;
+        }
+
+        // --- Restart Game ---
+        function restartGame() {
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('restart-button').style.display = 'none';
+            score = 0;
+            lives = 3;
+            targets = [];
+            targetCount = 0;
+            gameRunning = true;
+            createTarget();
+            animate();
+        }
+
+        // --- Initialize the game ---
+        animate();
+    </script>
+</body>
+
+</html>

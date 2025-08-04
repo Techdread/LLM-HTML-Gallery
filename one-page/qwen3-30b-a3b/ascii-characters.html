@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Sphere Rotation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: black;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        let sphere = [];
+        const numChars = 256; // Number of ASCII characters to use
+        const charSet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+        function setup() {
+            createCanvas(800, 800, WEBGL);
+            colorMode(HSB, 360, 100, 100, 1);
+
+            // Create a sphere using ASCII characters
+            const radius = 200;
+            const numPoints = 1500; // Number of points on the sphere
+
+            for (let i = 0; i < numPoints; i++) {
+                // Use spherical coordinates to place points on a sphere
+                const theta = random(TWO_PI);
+                const phi = acos(2 * random() - 1); // Uniform distribution over sphere
+
+                const x = radius * sin(phi) * cos(theta);
+                const y = radius * sin(phi) * sin(theta);
+                const z = radius * cos(phi);
+
+                // Choose a character from the set
+                const charIndex = floor(random(charSet.length));
+                const char = charSet[charIndex];
+
+                // Store point with its 3D position and character
+                sphere.push({
+                    x: x,
+                    y: y,
+                    z: z,
+                    char: char,
+                    originalX: x,
+                    originalY: y,
+                    originalZ: z
+                });
+            }
+        }
+
+        function draw() {
+            background(0, 0, 0);
+
+            // Rotate the sphere around X and Y axes
+            const angle = millis() / 1000;
+            rotateX(angle * 0.5);
+            rotateY(angle * 0.7);
+
+            // Draw each ASCII character point
+            for (let i = 0; i < sphere.length; i++) {
+                let p = sphere[i];
+
+                // Apply rotation to the point
+                const rotatedX = p.x;
+                const rotatedY = p.y;
+                const rotatedZ = p.z;
+
+                // Calculate distance from camera (z-coordinate)
+                const distFromCamera = 500 - rotatedZ; // Add offset for perspective
+
+                // Normalize distance (0 to 1) where 0 is farthest and 1 is closest
+                const normalizedDist = constrain(distFromCamera / 500, 0, 1);
+
+                // Map the normalized distance to brightness (white to grey)
+                const brightness = lerp(100, 20, normalizedDist); // White to light grey
+
+                // Calculate screen position with perspective
+                const scale = 400 / (400 + rotatedZ);
+                const screenX = width / 2 + rotatedX * scale;
+                const screenY = height / 2 + rotatedY * scale;
+
+                // Set the color based on distance from camera
+                fill(0, 0, brightness); // HSB: black hue, no saturation, varying brightness
+
+                // Draw the character at calculated position
+                textSize(16);
+                textAlign(CENTER, CENTER);
+                text(p.char, screenX, screenY);
+            }
+        }
+    </script>
+</body>
+
+</html>

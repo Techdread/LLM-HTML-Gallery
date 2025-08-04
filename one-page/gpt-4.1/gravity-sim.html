@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>3D Gravity Well Simulation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Inter', Arial, sans-serif;
+            background: #101019;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 2;
+            background: rgba(24, 24, 32, 0.93);
+            padding: 20px 22px;
+            border-radius: 18px;
+            box-shadow: 0 2px 24px 0 #0006;
+            min-width: 290px;
+        }
+
+        #ui h2 {
+            font-size: 1.15rem;
+            margin: 0 0 12px 0;
+            letter-spacing: 0.01em;
+            font-weight: 500;
+        }
+
+        .control {
+            margin: 9px 0 15px 0;
+        }
+
+        label {
+            display: block;
+            font-size: 0.96em;
+            margin-bottom: 3px;
+            font-weight: 500;
+        }
+
+        input[type="range"] {
+            width: 100%;
+        }
+
+        input,
+        button,
+        select {
+            font-family: inherit;
+            font-size: 1em;
+            border-radius: 7px;
+            border: none;
+            outline: none;
+            margin-bottom: 0.1em;
+        }
+
+        button {
+            margin-top: 5px;
+            padding: 8px 18px;
+            background: #294aff;
+            color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 1px 8px 0 #0002;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            margin-right: 8px;
+        }
+
+        button:active {
+            background: #17369a;
+        }
+
+        .massive-objects-list {
+            margin-bottom: 12px;
+        }
+
+        .particle-launch {
+            margin-top: 14px;
+            border-top: 1px solid #3336;
+            padding-top: 14px;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            outline: none;
+            z-index: 0;
+            background: #171728;
+            display: block;
+        }
+
+        .desc {
+            color: #ccc;
+            font-size: 0.97em;
+            margin-bottom: 8px;
+            margin-top: -2px;
+            line-height: 1.34;
+        }
+
+        .slider-value {
+            display: inline-block;
+            min-width: 34px;
+            text-align: right;
+            margin-left: 6px;
+            color: #8ecaff;
+            font-size: 1em;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <h2>Gravity Well Simulation</h2>
+        <div class="desc">
+            Place massive objects and launch particles to see how gravity warps spacetime.
+        </div>
+        <div class="control">
+            <label>Place Massive Object:</label>
+            <button onclick="addMassiveObject()">Add Star</button>
+            <button onclick="addMassiveObject(true)">Add Black Hole</button>
+        </div>
+        <div class="massive-objects-list" id="objectsList"></div>
+
+        <div class="particle-launch">
+            <label>Launch Particle:</label>
+            <div>
+                <label>Initial Velocity <span class="slider-value" id="velValue">1.0</span></label>
+                <input id="velSlider" type="range" min="0.2" max="4.0" step="0.05" value="1.0"
+                    oninput="document.getElementById('velValue').textContent=this.value" />
+                <button onclick="enableLaunchMode()">Click to Launch</button>
+            </div>
+        </div>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.125.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.125.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // ==== SIMULATION CONFIGURABLES ====
+        const GRID_SIZE = 38;
+        const GRID_STEP = 1.7;
+        const WELL_DEPTH_SCALE = 21.5;   // how much each unit of mass deforms the grid
+        const MASSIVE_OBJECT_RADIUS = 1.6;
+        const PARTICLE_RADIUS = 0.22;
+        const G = 4.4;   // simulation 'gravitational constant', tweak for fun
+        const TIMESTEP = 0.021; // seconds per frame
+        const TRAIL_LENGTH = 270;  // how many steps to keep in particle trails
+
+        // ==== SCENE SETUP ====
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x181828);
+
+        const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 180);
+        camera.position.set(0, 26, 32);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0, 0);
+        controls.enablePan = false;
+        controls.minDistance = 14;
+        controls.maxDistance = 88;
+        controls.update();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ==== LIGHTING ====
+        scene.add(new THREE.AmbientLight(0xffffff, 0.68));
+        const dLight = new THREE.DirectionalLight(0xaaccff, 0.52);
+        dLight.position.set(23, 32, 11);
+        scene.add(dLight);
+
+        // ==== GRID CREATION ====
+        const gridGeometry = new THREE.PlaneGeometry(GRID_SIZE * GRID_STEP, GRID_SIZE * GRID_STEP, GRID_SIZE, GRID_SIZE);
+        gridGeometry.rotateX(-Math.PI / 2);
+        const gridMaterial = new THREE.MeshPhysicalMaterial({
+            color: 0x274faa,
+            metalness: 0.05,
+            roughness: 0.45,
+            clearcoat: 0.47,
+            reflectivity: 0.11,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.93,
+            wireframe: false,
+        });
+        const gridMesh = new THREE.Mesh(gridGeometry, gridMaterial);
+        scene.add(gridMesh);
+
+        // Thin grid lines
+        const gridHelper = new THREE.GridHelper(GRID_SIZE * GRID_STEP, GRID_SIZE, 0x7aaaff, 0x1854aa);
+        gridHelper.position.y = 0.02;
+        scene.add(gridHelper);
+
+        // ==== MASSIVE OBJECTS (stars/black holes) ====
+        let massiveObjects = [];
+        function addMassiveObject(blackHole = false) {
+            // Place at random (x, z) within grid
+            const pos = [
+                (Math.random() - 0.5) * GRID_SIZE * GRID_STEP * 0.8,
+                (Math.random() - 0.5) * GRID_SIZE * GRID_STEP * 0.8
+            ];
+            let mass = blackHole ? 19 : 6 + Math.random() * 7;
+            const color = blackHole ? 0x13131a : 0xf9db39;
+            const obj = {
+                pos: new THREE.Vector2(pos[0], pos[1]),
+                mass: mass,
+                blackHole: blackHole,
+                mesh: null,
+                massInput: null
+            };
+            const geo = new THREE.SphereGeometry(MASSIVE_OBJECT_RADIUS * (blackHole ? 1.18 : 1.0), 28, 20);
+            const mat = new THREE.MeshPhysicalMaterial({
+                color: color,
+                metalness: blackHole ? 0.89 : 0.15,
+                roughness: blackHole ? 0.35 : 0.32,
+                transparent: false,
+                clearcoat: 0.23,
+                emissive: blackHole ? 0x181848 : 0x3f2f05,
+                opacity: 1.0,
+                wireframe: false,
+            });
+            obj.mesh = new THREE.Mesh(geo, mat);
+            obj.mesh.position.set(obj.pos.x, MASSIVE_OBJECT_RADIUS * 1.08, obj.pos.y);
+            obj.mesh.castShadow = false;
+            obj.mesh.userData.massiveObject = obj;
+
+            // Drag to move (handler logic set up below)
+            obj.mesh.cursor = 'pointer';
+            obj.mesh.onPointerDown = () => { };
+            massiveObjects.push(obj);
+            scene.add(obj.mesh);
+            updateObjectsList();
+            updateGridDeformation();
+        }
+
+        function updateObjectsList() {
+            const listDiv = document.getElementById('objectsList');
+            listDiv.innerHTML = '';
+            massiveObjects.forEach((obj, i) => {
+                const div = document.createElement('div');
+                div.style.display = 'flex';
+                div.style.alignItems = 'center';
+                div.style.marginBottom = '4px';
+                div.innerHTML = `
+      <span style="font-size:1.12em;margin-right:7px;color:${obj.blackHole ? '#8ae' : '#fd2'};">${obj.blackHole ? '🕳️' : '★'}</span>
+      <span style="flex:1;">M:</span>
+      <input type="range" min="2" max="26" value="${obj.mass}" step="0.1" style="width:90px;" oninput="massiveObjects[${i}].mass=parseFloat(this.value);updateGridDeformation();this.nextSibling.textContent=parseFloat(this.value).toFixed(1);">
+      <span class="slider-value" style="min-width:36px;">${obj.mass.toFixed(1)}</span>
+      <button style="background:#c43c44;padding:3px 12px;margin-left:7px;font-size:1em;" onclick="removeMassiveObject(${i})">✕</button>
+    `;
+                listDiv.appendChild(div);
+            });
+        }
+        function removeMassiveObject(idx) {
+            scene.remove(massiveObjects[idx].mesh);
+            massiveObjects.splice(idx, 1);
+            updateObjectsList();
+            updateGridDeformation();
+        }
+
+        // ==== GRID DEFORMATION ====
+        function updateGridDeformation() {
+            // For each vertex, calculate the sum of deformations by all massive objects
+            const positions = gridGeometry.attributes.position;
+            for (let i = 0; i < positions.count; i++) {
+                // x,z are in-plane
+                let x = positions.getX(i);
+                let z = positions.getZ(i);
+                let y = 0;
+                for (const obj of massiveObjects) {
+                    let dx = x - obj.pos.x;
+                    let dz = z - obj.pos.y;
+                    let r = Math.sqrt(dx * dx + dz * dz) + 0.32; // avoid singularity
+                    // 1/r gravity well, with mass
+                    y -= obj.mass * WELL_DEPTH_SCALE / r;
+                }
+                positions.setY(i, y);
+            }
+            positions.needsUpdate = true;
+            gridGeometry.computeVertexNormals();
+        }
+
+        // ==== DRAG MASSIVE OBJECTS ====
+        let draggingObj = null, dragOffset = null;
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        renderer.domElement.addEventListener('pointerdown', onPointerDown);
+        renderer.domElement.addEventListener('pointerup', onPointerUp);
+        renderer.domElement.addEventListener('pointermove', onPointerMove);
+
+        function getPointerPos(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        }
+        function onPointerDown(event) {
+            getPointerPos(event);
+            raycaster.setFromCamera(pointer, camera);
+            const intersects = raycaster.intersectObjects(massiveObjects.map(o => o.mesh));
+            if (intersects.length > 0) {
+                draggingObj = intersects[0].object.userData.massiveObject;
+                // Compute drag offset in XZ
+                dragOffset = new THREE.Vector2(
+                    draggingObj.pos.x - intersects[0].point.x,
+                    draggingObj.pos.y - intersects[0].point.z
+                );
+                controls.enableRotate = false;
+            } else if (launchMode) {
+                launchParticleAtPointer(event);
+            }
+        }
+        function onPointerMove(event) {
+            if (draggingObj) {
+                // Raycast to plane Y=0
+                getPointerPos(event);
+                raycaster.setFromCamera(pointer, camera);
+                const planeY0 = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+                const intersect = new THREE.Vector3();
+                raycaster.ray.intersectPlane(planeY0, intersect);
+                draggingObj.pos.x = intersect.x + dragOffset.x;
+                draggingObj.pos.y = intersect.z + dragOffset.y;
+                draggingObj.mesh.position.set(draggingObj.pos.x, MASSIVE_OBJECT_RADIUS * 1.08, draggingObj.pos.y);
+                updateGridDeformation();
+            }
+        }
+        function onPointerUp(event) {
+            draggingObj = null;
+            controls.enableRotate = true;
+        }
+
+        // ==== PARTICLES AND TRAILS ====
+        let particles = [];
+        function enableLaunchMode() {
+            launchMode = true;
+            document.body.style.cursor = 'crosshair';
+        }
+        let launchMode = false;
+        function launchParticleAtPointer(event) {
+            // Find point on grid
+            getPointerPos(event);
+            raycaster.setFromCamera(pointer, camera);
+            const planeY0 = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+            const intersect = new THREE.Vector3();
+            raycaster.ray.intersectPlane(planeY0, intersect);
+            // Set velocity towards a random in-plane direction, user can enhance this logic!
+            const velMag = parseFloat(document.getElementById('velSlider').value);
+            let angle = Math.random() * Math.PI * 2;
+            let vx = velMag * Math.cos(angle);
+            let vz = velMag * Math.sin(angle);
+            const particle = {
+                pos: new THREE.Vector3(intersect.x, 0.22, intersect.z),
+                vel: new THREE.Vector3(vx, 0, vz),
+                mesh: null,
+                trail: [],
+                trailLine: null
+            };
+            const mat = new THREE.MeshPhysicalMaterial({ color: 0x59eaff, metalness: 0.18, roughness: 0.22, clearcoat: 0.6, emissive: 0x05415f });
+            const geo = new THREE.SphereGeometry(PARTICLE_RADIUS, 12, 8);
+            particle.mesh = new THREE.Mesh(geo, mat);
+            particle.mesh.position.copy(particle.pos);
+            scene.add(particle.mesh);
+            // Trail
+            const trailGeo = new THREE.BufferGeometry();
+            const trailVerts = new Float32Array(TRAIL_LENGTH * 3);
+            trailGeo.setAttribute('position', new THREE.BufferAttribute(trailVerts, 3));
+            const trailMat = new THREE.LineBasicMaterial({ color: 0x52f6d1 });
+            particle.trailLine = new THREE.Line(trailGeo, trailMat);
+            scene.add(particle.trailLine);
+            particles.push(particle);
+            launchMode = false;
+            document.body.style.cursor = '';
+        }
+
+        // ==== PHYSICS LOOP ====
+        function computeAccel(pos) {
+            // Acceleration from all massive objects
+            let acc = new THREE.Vector3();
+            for (const obj of massiveObjects) {
+                let dx = obj.pos.x - pos.x;
+                let dz = obj.pos.y - pos.z;
+                let distSq = dx * dx + dz * dz + 0.41;
+                let dist = Math.sqrt(distSq);
+                let force = G * obj.mass / distSq;
+                acc.x += force * dx / dist;
+                acc.z += force * dz / dist;
+            }
+            return acc;
+        }
+
+        function animateParticles() {
+            for (const p of particles) {
+                // Runge-Kutta 4th order integration (one step)
+                let a1 = computeAccel(p.pos);
+                let v1 = p.vel.clone().multiplyScalar(TIMESTEP);
+
+                let a2 = computeAccel(p.pos.clone().add(v1.clone().multiplyScalar(0.5)));
+                let v2 = p.vel.clone().add(a1.clone().multiplyScalar(TIMESTEP / 2)).multiplyScalar(TIMESTEP);
+
+                let a3 = computeAccel(p.pos.clone().add(v2.clone().multiplyScalar(0.5)));
+                let v3 = p.vel.clone().add(a2.clone().multiplyScalar(TIMESTEP / 2)).multiplyScalar(TIMESTEP);
+
+                let a4 = computeAccel(p.pos.clone().add(v3));
+                let v4 = p.vel.clone().add(a3.clone().multiplyScalar(TIMESTEP)).multiplyScalar(TIMESTEP);
+
+                // RK4 weighted sums
+                let dx = v1.clone().add(v2.clone().multiplyScalar(2)).add(v3.clone().multiplyScalar(2)).add(v4).multiplyScalar(1 / 6);
+                let da = a1.clone().add(a2.clone().multiplyScalar(2)).add(a3.clone().multiplyScalar(2)).add(a4).multiplyScalar(1 / 6);
+
+                p.pos.add(dx);
+                p.vel.add(da.multiplyScalar(TIMESTEP));
+
+                // Clamp to grid boundary (optional)
+                let rmax = GRID_SIZE * GRID_STEP * 0.48;
+                if (Math.abs(p.pos.x) > rmax || Math.abs(p.pos.z) > rmax) {
+                    p.vel.set(0, 0, 0);
+                }
+                // Update mesh position
+                p.mesh.position.copy(p.pos);
+
+                // Update trail
+                p.trail.push(p.pos.clone());
+                if (p.trail.length > TRAIL_LENGTH) p.trail.shift();
+                let positions = p.trailLine.geometry.attributes.position;
+                for (let i = 0; i < TRAIL_LENGTH; i++) {
+                    let t = p.trail[i] || p.trail[0] || p.pos;
+                    positions.setXYZ(i, t.x, t.y + 0.03, t.z);
+                }
+                positions.needsUpdate = true;
+            }
+        }
+
+        // ==== MAIN ANIMATION LOOP ====
+        function animate() {
+            requestAnimationFrame(animate);
+            animateParticles();
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+    </script>
+</body>
+
+</html>

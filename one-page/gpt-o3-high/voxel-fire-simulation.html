@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Voxel Fire Simulation</title>
+  <style>
+    /* Basic CSS styling */
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+    }
+    canvas {
+      display: block;
+    }
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 100;
+      color: #fff;
+    }
+    button {
+      font-size: 16px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <!-- UI Section: Reset button -->
+  <div id="ui">
+    <button id="resetBtn">Reset Simulation</button>
+  </div>
+  
+  <!-- The canvas element for Three.js -->
+  <canvas id="sceneCanvas"></canvas>
+  
+  <script type="module">
+    // Import necessary modules from Skypack CDN
+    import * as THREE from 'https://cdn.skypack.dev/three@0.128.0';
+    import { OrbitControls } from 'https://cdn.skypack.dev/three@0.128.0/examples/jsm/controls/OrbitControls.js';
+
+    // Global variables and parameters
+    let scene, camera, renderer, controls, raycaster;
+    let voxelGrid = [];     // 3D array storing our voxels and state
+    let voxelMeshes = [];   // Array to hold the mesh objects for raycasting
+    let smokeParticles = []; // To hold our smoke sprite particles
+    
+    // Grid parameters
+    const GRID_SIZE   = 10;
+    const voxelSize   = 1;
+    const spacing     = 1.1;         // Extra spacing to visualize gaps between voxels
+    const initialFuel = 100;         // How long each voxel burns
+    const fireDecay   = 0.5;         // Fuel reduction per frame for burning voxels
+    const fireSpreadProbability = 0.005; // Chance per frame to ignite each neighbor
+    
+    // Define materials for each voxel state:
+    const flammableMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // wood/brown
+    const burningMaterial   = new THREE.MeshLambertMaterial({ color: 0xff4500 }); // orange-red fire
+    const burntMaterial     = new THREE.MeshLambertMaterial({ color: 0x222222 }); // dark grey/black
+    
+    // Initialize scene, camera, renderer, lights, and controls
+    init();
+    animate();
+    
+    function init() {
+      const canvas = document.getElementById('sceneCanvas');
+      
+      // Create scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x000000);
+      
+      // Create camera
+      camera = new THREE.PerspectiveCamera(
+        45,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      // Position camera so the entire grid is in view
+      camera.position.set(GRID_SIZE * 1.5, GRID_SIZE * 1.5, GRID_SIZE * 1.5);
+      
+      // Create renderer and attach to the canvas element
+      renderer = new THREE.WebGLRenderer({ canvas: canvas });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      
+      // Add orbit controls for easy navigation
+      controls = new OrbitControls(camera, renderer.domElement);
+      
+      // Add ambient and directional lighting
+      const ambientLight = new THREE.AmbientLight(0x404040);
+      scene.add(ambientLight);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+      directionalLight.position.set(1, 2, 3);
+      scene.add(directionalLight);
+      
+      // Initialize raycaster for detecting mouse clicks on voxels
+      raycaster = new THREE.Raycaster();
+      
+      // Build the voxel grid
+      createVoxelGrid();
+      
+      // Event listeners for window resize, mouse clicks, and reset button
+      window.addEventListener('resize', onWindowResize, false);
+      window.addEventListener('click', onMouseClick, false);
+      document.getElementById('resetBtn').addEventListener('click', resetSimulation);
+    }
+    
+    function createVoxelGrid() {
+      // Use a single BoxGeometry for all voxels
+      const geometry = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
+      
+      // Create a 3D grid of voxels
+      for (let i = 0; i < GRID_SIZE; i++) {
+        voxelGrid[i] = [];
+        for (let j = 0; j < GRID_SIZE; j++) {
+          voxelGrid[i][j] = [];
+          for (let k = 0; k < GRID_SIZE; k++) {
+            // Create a new mesh with its own instance of the flammable material
+            const mesh = new THREE.Mesh(geometry, flammableMaterial.clone());
+            // Center the grid around the origin:
+            const offset = (GRID_SIZE - 1) * spacing / 2;
+            mesh.position.set(i * spacing - offset, j * spacing - offset, k * spacing - offset);
+            scene.add(mesh);
+            voxelMeshes.push(mesh);
+            
+            // Each voxel stores its state and will later receive neighbor references
+            const voxel = {
+              mesh: mesh,
+              state: {
+                isFlammable: true,
+                isOnFire: false,
+                fuel: initialFuel
+              },
+              neighbors: [] // Will be populated in the next loop
+            };
+            voxelGrid[i][j][k] = voxel;
+          }
+        }
+      }
+      
+      // Set up neighbor references (6-directional: +/-x, +/-y, +/-z)
+      for (let i = 0; i < GRID_SIZE; i++) {
+        for (let j = 0; j < GRID_SIZE; j++) {
+          for (let k = 0; k < GRID_SIZE; k++) {
+            let neighbors = [];
+            const directions = [
+              [1, 0, 0],
+              [-1, 0, 0],
+              [0, 1, 0],
+              [0, -1, 0],
+              [0, 0, 1],
+              [0, 0, -1]
+            ];
+            directions.forEach(dir => {
+              const ni = i + dir[0],
+                    nj = j + dir[1],
+                    nk = k + dir[2];
+              if (ni >= 0 && ni < GRID_SIZE &&
+                  nj >= 0 && nj < GRID_SIZE &&
+                  nk >= 0 && nk < GRID_SIZE) {
+                neighbors.push(voxelGrid[ni][nj][nk]);
+              }
+            });
+            voxelGrid[i][j][k].neighbors = neighbors;
+          }
+        }
+      }
+    }
+    
+    // Keep the camera and renderer in sync when the window size changes.
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    
+    // Handle mouse clicks by using raycasting to detect a voxel click.
+    function onMouseClick(event) {
+      const mouse = new THREE.Vector2();
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(voxelMeshes);
+      
+      if (intersects.length > 0) {
+        const mesh = intersects[0].object;
+        const voxel = getVoxelByMesh(mesh);
+        if (voxel && voxel.state.isFlammable && !voxel.state.isOnFire) {
+          igniteVoxel(voxel);
+        }
+      }
+    }
+    
+    // Helper function to retrieve the voxel corresponding to a clicked mesh.
+    function getVoxelByMesh(mesh) {
+      for (let i = 0; i < GRID_SIZE; i++) {
+        for (let j = 0; j < GRID_SIZE; j++) {
+          for (let k = 0; k < GRID_SIZE; k++) {
+            if (voxelGrid[i][j][k].mesh === mesh) {
+              return voxelGrid[i][j][k];
+            }
+          }
+        }
+      }
+      return null;
+    }
+    
+    // Ignite a voxel (set its state and change its material to the burning material)
+    function igniteVoxel(voxel) {
+      voxel.state.isOnFire = true;
+      voxel.state.fuel = initialFuel;
+      voxel.mesh.material = burningMaterial;
+    }
+    
+    // Update the simulation for each frame:
+    // - Decrease fuel for burning voxels.
+    // - Change states to burnt once fuel is exhausted.
+    // - Attempt fire spread to adjacent flammable voxels.
+    function updateVoxels() {
+      for (let i = 0; i < GRID_SIZE; i++) {
+        for (let j = 0; j < GRID_SIZE; j++) {
+          for (let k = 0; k < GRID_SIZE; k++) {
+            const voxel = voxelGrid[i][j][k];
+            if (voxel.state.isOnFire) {
+              // Decrease fuel and spawn occasional smoke particles
+              voxel.state.fuel -= fireDecay;
+              if (Math.random() < 0.1) spawnSmokeParticle(voxel);
+              
+              // When the voxel runs out of fuel, mark it as burnt
+              if (voxel.state.fuel <= 0) {
+                voxel.state.isOnFire = false;
+                voxel.state.isFlammable = false;
+                voxel.mesh.material = burntMaterial;
+              } else {
+                // For each neighbor, try to spread the fire based on probability
+                voxel.neighbors.forEach(neighbor => {
+                  if (neighbor.state.isFlammable && !neighbor.state.isOnFire) {
+                    if (Math.random() < fireSpreadProbability) {
+                      igniteVoxel(neighbor);
+                    }
+                  }
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // --- Smoke Particle System (Optional) ---
+    // Each smoke particle is a small sprite that slowly rises and fades.
+    function spawnSmokeParticle(voxel) {
+      const spriteMaterial = new THREE.SpriteMaterial({ color: 0x555555, opacity: 0.6 });
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.scale.set(0.5, 0.5, 0.5);
+      sprite.position.copy(voxel.mesh.position);
+      scene.add(sprite);
+      smokeParticles.push({ sprite: sprite, lifetime: 100 });
+    }
+    
+    // Update smoke particles: move them upward, fade their opacity, and remove when expired.
+    function updateSmokeParticles() {
+      for (let i = smokeParticles.length - 1; i >= 0; i--) {
+        const particle = smokeParticles[i];
+        particle.lifetime -= 1;
+        particle.sprite.position.y += 0.01;         // Slowly rise upward
+        particle.sprite.material.opacity *= 0.98;     // Gradually fade
+        if (particle.lifetime <= 0 || particle.sprite.material.opacity < 0.05) {
+          scene.remove(particle.sprite);
+          smokeParticles.splice(i, 1);
+        }
+      }
+    }
+    
+    // Main animation loop – updates the simulation and renders the scene
+    function animate() {
+      requestAnimationFrame(animate);
+      updateVoxels();
+      updateSmokeParticles();
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    
+    // Reset the simulation so that every voxel goes back to its initial flammable state.
+    function resetSimulation() {
+      for (let i = 0; i < GRID_SIZE; i++) {
+        for (let j = 0; j < GRID_SIZE; j++) {
+          for (let k = 0; k < GRID_SIZE; k++) {
+            const voxel = voxelGrid[i][j][k];
+            voxel.state.isFlammable = true;
+            voxel.state.isOnFire   = false;
+            voxel.state.fuel       = initialFuel;
+            voxel.mesh.material    = flammableMaterial;
+          }
+        }
+      }
+      // Remove any remaining smoke particles from the scene.
+      smokeParticles.forEach(p => scene.remove(p.sprite));
+      smokeParticles = [];
+    }
+  </script>
+</body>
+</html>

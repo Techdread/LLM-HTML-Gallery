@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Bin Packing Visualization (Heuristic Evaluation)</title>
+    <style>
+        /* Basic styling for the page */
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            /* Using Inter font */
+            background-color: #f0f0f0;
+            /* Light gray background */
+            color: #333;
+            overflow: hidden;
+            /* Prevent scrollbars */
+        }
+
+        canvas {
+            display: block;
+            /* Remove extra space below canvas */
+            width: 100%;
+            /* Make canvas responsive */
+            height: 100%;
+        }
+
+        /* Style for the info overlay */
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 10px 15px;
+            background-color: rgba(255, 255, 255, 0.85);
+            border-radius: 8px;
+            font-size: 0.9em;
+            max-width: 300px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            /* Ensure it's above the canvas */
+        }
+
+        /* Style for buttons */
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 1em;
+            font-family: 'Inter', sans-serif;
+            border: none;
+            border-radius: 8px;
+            background-color: #4a90e2;
+            /* Blue */
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.2s ease;
+        }
+
+        button:hover {
+            background-color: #357abd;
+            /* Darker blue */
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #resetButton {
+            background-color: #d9534f;
+            /* Red */
+        }
+
+        #resetButton:hover {
+            background-color: #c9302c;
+            /* Darker red */
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div id="info">
+        <strong>3D Bin Packing Visualization</strong><br>
+        Drag to rotate, scroll to zoom.<br>
+        Uses heuristic evaluation (best score wins).<br>
+        <span id="status">Status: Ready</span>
+    </div>
+
+    <div id="controls">
+        <button id="startButton">Start Packing</button>
+        <button id="resetButton">Reset</button>
+    </div>
+
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        // Import necessary Three.js components
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Global Variables ---
+        let scene, camera, renderer, controls;
+        let binMesh; // Reference to the bin wireframe
+        const pieceMeshes = new THREE.Group(); // Group to hold all piece meshes
+        const cornerMeshes = new THREE.Group(); // Group to hold corner visualizations
+        let theBin; // The bin object
+        let allPieces = []; // The initial list of all pieces
+        let remainingPieces = []; // Pieces yet to be packed in the current run
+        let packingTimeoutId = null; // To control the step-by-step timeout
+        const packingDelay = 100; // Reduced delay for faster visualization with evaluation
+
+        const statusElement = document.getElementById('status');
+        const startButton = document.getElementById('startButton');
+        const resetButton = document.getElementById('resetButton');
+
+        // --- 1. Data Structures ---
+        class Piece {
+            constructor(id, width, height, depth, value = 0) {
+                this.id = id;
+                this.width = width;
+                this.height = height;
+                this.depth = depth;
+                this.value = value;
+                this.volume = width * height * depth;
+                this.position = null;
+                this.orientation = 0;
+                this.isPlaced = false;
+                this.originalWidth = width;
+                this.originalHeight = height;
+                this.originalDepth = depth;
+            }
+            reset() {
+                this.position = null;
+                this.orientation = 0;
+                this.isPlaced = false;
+                this.width = this.originalWidth;
+                this.height = this.originalHeight;
+                this.depth = this.originalDepth;
+            }
+        }
+        class Corner {
+            constructor(x, y, z) {
+                this.x = x;
+                this.y = y;
+                this.z = z;
+            }
+        }
+        class Bin {
+            constructor(width, height, depth) {
+                this.width = width;
+                this.height = height;
+                this.depth = depth;
+                this.volume = width * height * depth;
+                this.placedPieces = [];
+                this.corners = [new Corner(0, 0, 0)];
+                this.epsilon = 0.0001;
+            }
+            reset() {
+                this.placedPieces = [];
+                this.corners = [new Corner(0, 0, 0)];
+            }
+            // --- Methods: checkPlacement, boxesOverlap, placePiece, addCornerIfNotExists, getOrientationDims ---
+            // (Identical to previous version)
+            checkPlacement(piece, corner, orientation) {
+                const dims = this.getOrientationDims(piece, orientation);
+                if (corner.x + dims.w > this.width + this.epsilon ||
+                    corner.y + dims.h > this.height + this.epsilon ||
+                    corner.z + dims.d > this.depth + this.epsilon) {
+                    return false;
+                }
+                const pieceBox = new THREE.Box3(
+                    new THREE.Vector3(corner.x, corner.y, corner.z),
+                    new THREE.Vector3(corner.x + dims.w, corner.y + dims.h, corner.z + dims.d)
+                );
+                for (const placed of this.placedPieces) {
+                    const placedDims = this.getOrientationDims(placed, placed.orientation);
+                    const placedBox = new THREE.Box3(
+                        new THREE.Vector3(placed.position.x, placed.position.y, placed.position.z),
+                        new THREE.Vector3(placed.position.x + placedDims.w, placed.position.y + placedDims.h, placed.position.z + placedDims.d)
+                    );
+                    if (pieceBox.intersectsBox(placedBox)) {
+                        if (this.boxesOverlap(pieceBox, placedBox)) {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
+            boxesOverlap(box1, box2) {
+                const overlapX = box1.max.x > box2.min.x + this.epsilon && box1.min.x < box2.max.x - this.epsilon;
+                const overlapY = box1.max.y > box2.min.y + this.epsilon && box1.min.y < box2.max.y - this.epsilon;
+                const overlapZ = box1.max.z > box2.min.z + this.epsilon && box1.min.z < box2.max.z - this.epsilon;
+                return overlapX && overlapY && overlapZ;
+            }
+            placePiece(piece, corner, orientation) {
+                const dims = this.getOrientationDims(piece, orientation);
+                piece.position = { x: corner.x, y: corner.y, z: corner.z };
+                piece.orientation = orientation;
+                piece.isPlaced = true;
+                this.placedPieces.push(piece);
+                this.corners = this.corners.filter(c =>
+                    !(Math.abs(c.x - corner.x) < this.epsilon &&
+                        Math.abs(c.y - corner.y) < this.epsilon &&
+                        Math.abs(c.z - corner.z) < this.epsilon)
+                );
+                const cornerX = new Corner(corner.x + dims.w, corner.y, corner.z);
+                const cornerY = new Corner(corner.x, corner.y + dims.h, corner.z);
+                const cornerZ = new Corner(corner.x, corner.y, corner.z + dims.d);
+                if (cornerX.x < this.width - this.epsilon) this.addCornerIfNotExists(cornerX);
+                if (cornerY.y < this.height - this.epsilon) this.addCornerIfNotExists(cornerY);
+                if (cornerZ.z < this.depth - this.epsilon) this.addCornerIfNotExists(cornerZ);
+                this.corners = this.corners.filter(c => {
+                    const pieceBox = new THREE.Box3(
+                        new THREE.Vector3(corner.x, corner.y, corner.z),
+                        new THREE.Vector3(corner.x + dims.w, corner.y + dims.h, corner.z + dims.d)
+                    );
+                    const point = new THREE.Vector3(c.x, c.y, c.z);
+                    const isInside = point.x > pieceBox.min.x + this.epsilon && point.x < pieceBox.max.x - this.epsilon &&
+                        point.y > pieceBox.min.y + this.epsilon && point.y < pieceBox.max.y - this.epsilon &&
+                        point.z > pieceBox.min.z + this.epsilon && point.z < pieceBox.max.z - this.epsilon;
+                    return !isInside;
+                });
+            }
+            addCornerIfNotExists(newCorner) {
+                const exists = this.corners.some(c =>
+                    Math.abs(c.x - newCorner.x) < this.epsilon &&
+                    Math.abs(c.y - newCorner.y) < this.epsilon &&
+                    Math.abs(c.z - newCorner.z) < this.epsilon
+                );
+                if (!exists) {
+                    this.corners.push(newCorner);
+                }
+            }
+            getOrientationDims(piece, orientation) {
+                switch (orientation) {
+                    case 0: return { w: piece.width, h: piece.height, d: piece.depth };
+                    case 1: return { w: piece.height, h: piece.width, d: piece.depth };
+                    case 2: return { w: piece.width, h: piece.depth, d: piece.height };
+                    case 3: return { w: piece.depth, h: piece.width, d: piece.height };
+                    case 4: return { w: piece.height, h: piece.depth, d: piece.width };
+                    case 5: return { w: piece.depth, h: piece.height, d: piece.width };
+                    default: return { w: piece.width, h: piece.height, d: piece.depth };
+                }
+            }
+        }
+
+        // --- 2. Packing Algorithm (Heuristic Evaluation Logic) ---
+
+        /**
+         * Evaluates a potential placement and returns a score.
+         * Higher scores are better.
+         * This function acts as the placeholder for the evolved heuristic from GP.
+         *
+         * @param {Piece} piece - The piece being considered.
+         * @param {Corner} corner - The corner being considered.
+         * @param {number} orientation - The orientation being considered.
+         * @param {object} dims - Dimensions of the piece in this orientation {w, h, d}.
+         * @param {Bin} bin - The bin object.
+         * @returns {number} - The heuristic score for this placement.
+         */
+        function evaluatePlacementHeuristic(piece, corner, dims, orientation, bin) {
+            // --- Simple Example Heuristic ---
+            // Inspired by terminals in the paper (Volume, Corner Position)
+            // We want to maximize score.
+
+            // Factor 1: Piece Volume (Larger pieces might be prioritized)
+            let score = piece.volume * 1.0; // Base score on volume
+
+            // Factor 2: Corner Position (Prefer lower, back, left corners - lower coordinate sum)
+            // Penalize placements further away from origin (higher coordinate sum)
+            const positionPenalty = (corner.x + corner.y + corner.z) * 0.5; // Adjust weight as needed
+            score -= positionPenalty;
+
+            // Factor 3: Surface Contact / Fit (Placeholder - More complex)
+            // A real heuristic would calculate how well the piece fits against existing surfaces
+            // or minimizes wasted space ('Waste' terminals in the paper).
+            // Example: Slightly prefer orientations that place the largest face down?
+            if (dims.w * dims.d > dims.w * dims.h && dims.w * dims.d > dims.h * dims.d) {
+                score += piece.volume * 0.1; // Small bonus for largest face on XY plane
+            }
+
+            // Factor 4: Prefer placing pieces lower down (lower Y)
+            score -= corner.y * 1.0; // Penalize higher Y positions
+
+            // Add more factors based on PDF terminals (Value, XYWaste, XZWaste, YZWaste)
+            // score += piece.value; // If doing knapsack
+            // score -= calculateWaste(piece, corner, dims, orientation, bin); // Complex function needed
+
+            return score;
+        }
+
+
+        /**
+         * Finds the single best placement for the next step based on heuristic evaluation.
+         * Iterates through ALL valid placements and chooses the one with the highest score.
+         * @param {Bin} bin - The bin object.
+         * @param {Piece[]} currentRemainingPieces - Array of pieces still to be placed.
+         * @returns {object|null} - An object { piece, corner, orientation, pieceIndex, score } for the best placement, or null.
+         */
+        function findBestPlacement(bin, currentRemainingPieces) {
+            let bestPlacement = null;
+            let bestScore = -Infinity; // Initialize with a very low score
+
+            // Iterate through remaining pieces
+            for (let i = 0; i < currentRemainingPieces.length; i++) {
+                const piece = currentRemainingPieces[i];
+
+                // Try placing this piece at each available corner
+                for (const corner of bin.corners) {
+                    // Try all 6 possible orientations
+                    for (let orientation = 0; orientation < 6; orientation++) {
+                        // Check if this placement is physically possible
+                        if (bin.checkPlacement(piece, corner, orientation)) {
+                            // If valid, evaluate it using the heuristic
+                            const dims = bin.getOrientationDims(piece, orientation);
+                            const currentScore = evaluatePlacementHeuristic(piece, corner, dims, orientation, bin);
+
+                            // If this placement has a better score than the current best, update
+                            if (currentScore > bestScore) {
+                                bestScore = currentScore;
+                                bestPlacement = { piece, corner, orientation, pieceIndex: i, score: currentScore };
+                            }
+                        }
+                    }
+                }
+            }
+            // Return the best placement found (or null if none were possible)
+            return bestPlacement;
+        }
+
+        /**
+         * Executes one step of the packing process using the best placement found.
+         */
+        function packStep() {
+            if (remainingPieces.length === 0) {
+                statusElement.textContent = "Status: Packing Complete (All pieces placed).";
+                console.log("Packing Complete: All pieces placed.");
+                startButton.disabled = false;
+                return;
+            }
+
+            // Find the single best placement based on the heuristic evaluation
+            const bestPlacement = findBestPlacement(theBin, remainingPieces);
+
+            if (bestPlacement) {
+                // Best placement found: Place the piece
+                const { piece, corner, orientation, pieceIndex, score } = bestPlacement;
+                theBin.placePiece(piece, corner, orientation);
+
+                // Remove the placed piece from the remaining list
+                remainingPieces.splice(pieceIndex, 1);
+
+                statusElement.textContent = `Status: Placed Piece ${piece.id} (Score: ${score.toFixed(2)}). Remaining: ${remainingPieces.length}`;
+                console.log(`Placed Piece ${piece.id} (Vol: ${piece.volume}) at (${corner.x.toFixed(2)}, ${corner.y.toFixed(2)}, ${corner.z.toFixed(2)}) orientation ${orientation}. Score: ${score.toFixed(2)}. Remaining: ${remainingPieces.length}`);
+
+                // Update visualization
+                visualizePacking(theBin.placedPieces, theBin);
+                visualizeCorners(theBin.corners);
+
+                // Schedule the next step
+                packingTimeoutId = setTimeout(packStep, packingDelay);
+            } else {
+                // No placement found for any remaining piece
+                statusElement.textContent = `Status: Packing Complete (Cannot place remaining ${remainingPieces.length} pieces).`;
+                console.log(`Packing Complete: No valid placement found for remaining ${remainingPieces.length} pieces.`);
+                startButton.disabled = false;
+            }
+        }
+
+        /** Initiates the step-by-step packing process. */
+        function startPackingProcess() {
+            if (packingTimeoutId) {
+                clearTimeout(packingTimeoutId);
+            }
+            resetPacking();
+            startButton.disabled = true;
+
+            // Sort pieces once initially (optional, heuristic might override)
+            remainingPieces = [...allPieces];
+            remainingPieces.sort((a, b) => b.volume - a.volume);
+
+            statusElement.textContent = "Status: Packing Started...";
+            console.log("Packing Started...");
+            packingTimeoutId = setTimeout(packStep, packingDelay);
+        }
+
+        /** Resets the packing state and visualization. */
+        function resetPacking() {
+            if (packingTimeoutId) {
+                clearTimeout(packingTimeoutId);
+                packingTimeoutId = null;
+            }
+            theBin.reset();
+            allPieces.forEach(p => p.reset());
+            remainingPieces = [];
+            pieceMeshes.clear();
+            cornerMeshes.clear();
+            visualizeCorners(theBin.corners); // Show initial corner
+            statusElement.textContent = "Status: Ready";
+            startButton.disabled = false;
+            console.log("Packing Reset.");
+        }
+
+
+        // --- 3. Three.js Visualization Setup ---
+        // (Identical to previous version - initVisualization, visualizePacking, visualizeCorners, onWindowResize, animate)
+        function initVisualization() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0x606060, 1.5);
+            scene.add(ambientLight);
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
+            directionalLight1.position.set(1, 0.75, 0.5).normalize();
+            scene.add(directionalLight1);
+            const directionalLight2 = new THREE.DirectionalLight(0xaaaaaa, 0.8);
+            directionalLight2.position.set(-1, -0.75, -0.5).normalize();
+            scene.add(directionalLight2);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+
+            const axesHelper = new THREE.AxesHelper(Math.max(theBin.width, theBin.height, theBin.depth) * 1.2);
+            scene.add(axesHelper);
+
+            const binGeometry = new THREE.BoxGeometry(theBin.width, theBin.height, theBin.depth);
+            const binEdges = new THREE.EdgesGeometry(binGeometry);
+            binMesh = new THREE.LineSegments(binEdges, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 }));
+            binMesh.position.set(theBin.width / 2, theBin.height / 2, theBin.depth / 2);
+            scene.add(binMesh);
+
+            scene.add(pieceMeshes);
+            scene.add(cornerMeshes);
+
+            camera.position.set(theBin.width * 1.2, theBin.height * 1.5, theBin.depth * 1.8);
+            controls.target.set(theBin.width / 2, theBin.height / 2, theBin.depth / 2);
+            controls.update();
+
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+            resetPacking();
+            console.log("Three.js visualization initialized.");
+        }
+        function visualizePacking(packedPieces, bin) {
+            pieceMeshes.clear();
+            packedPieces.forEach(piece => {
+                const dims = bin.getOrientationDims(piece, piece.orientation);
+                const geometry = new THREE.BoxGeometry(dims.w, dims.h, dims.d);
+                const material = new THREE.MeshLambertMaterial({
+                    color: new THREE.Color(Math.random() * 0xffffff),
+                    transparent: true,
+                    opacity: 0.9
+                });
+                const cube = new THREE.Mesh(geometry, material);
+                cube.position.set(
+                    piece.position.x + dims.w / 2,
+                    piece.position.y + dims.h / 2,
+                    piece.position.z + dims.d / 2
+                );
+                pieceMeshes.add(cube);
+                const edges = new THREE.EdgesGeometry(geometry);
+                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x333333, transparent: true, opacity: 0.6 }));
+                line.position.copy(cube.position);
+                pieceMeshes.add(line);
+            });
+        }
+        function visualizeCorners(corners) {
+            cornerMeshes.clear();
+            const cornerGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const cornerMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff }); // Blue
+
+            corners.forEach(corner => {
+                const sphere = new THREE.Mesh(cornerGeometry, cornerMaterial);
+                sphere.position.set(corner.x, corner.y, corner.z);
+                cornerMeshes.add(sphere);
+            });
+        }
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- 4. Initialization and Event Listeners ---
+        const binDimensions = { width: 10, height: 10, depth: 10 };
+        theBin = new Bin(binDimensions.width, binDimensions.height, binDimensions.depth);
+        allPieces = [
+            new Piece(1, 4, 4, 4), new Piece(2, 3, 3, 3), new Piece(3, 5, 2, 2),
+            new Piece(4, 2, 5, 2), new Piece(5, 2, 2, 5), new Piece(6, 6, 1, 1),
+            new Piece(7, 1, 6, 1), new Piece(8, 1, 1, 6), new Piece(9, 3, 4, 5),
+            new Piece(10, 5, 3, 4), new Piece(11, 4, 5, 3), new Piece(12, 2, 2, 2),
+            new Piece(13, 2, 2, 2), new Piece(14, 1, 1, 1), new Piece(15, 1, 1, 1),
+            new Piece(16, 1, 1, 1), new Piece(17, 3, 1, 3), new Piece(18, 1, 3, 3),
+            new Piece(19, 3, 3, 1), new Piece(20, 4, 2, 3),
+        ];
+
+        startButton.addEventListener('click', startPackingProcess);
+        resetButton.addEventListener('click', resetPacking);
+        initVisualization();
+
+    </script>
+</body>
+
+</html>

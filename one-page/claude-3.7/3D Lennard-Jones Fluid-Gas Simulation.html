@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Lennard-Jones Simulation</title>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.skypack.dev/three@0.128.0",
+                "three/addons/": "https://cdn.skypack.dev/three@0.128.0/examples/jsm/",
+                "stats.js": "https://cdnjs.cloudflare.com/ajax/libs/stats.js/r17/Stats.min.js"
+            }
+        }
+    </script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        
+        #container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 15px;
+            border-radius: 5px;
+            max-width: 300px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        #info h1 {
+            margin: 0 0 15px 0;
+            font-size: 18px;
+        }
+        
+        .data-display {
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        .data-display p {
+            margin: 5px 0;
+        }
+        
+        .controls {
+            margin-top: 15px;
+        }
+        
+        button {
+            padding: 8px 12px;
+            margin-right: 8px;
+            border: none;
+            border-radius: 4px;
+            background-color: #4285f4;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background-color: #357ae8;
+        }
+        
+        button:active {
+            background-color: #2a56c6;
+        }
+        
+        .button-group {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="info">
+        <h1>3D Lennard-Jones Simulation</h1>
+        <div class="button-group">
+            <button id="start-pause">Pause</button>
+            <button id="reset">Reset</button>
+        </div>
+        <div class="data-display">
+            <p>Particles: <span id="particle-count">64</span></p>
+            <p>Temperature: <span id="temperature">0.0</span> K</p>
+            <p>Potential Energy: <span id="potential-energy">0.0</span></p>
+            <p>Kinetic Energy: <span id="kinetic-energy">0.0</span></p>
+            <p>Total Energy: <span id="total-energy">0.0</span></p>
+            <p>Simulation Time: <span id="sim-time">0.0</span></p>
+        </div>
+    </div>
+    
+    <script type="module">
+        import Stats from 'stats.js';
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // dat.gui is loaded globally via script tag now
+
+        // Main simulation parameters
+        const params = {
+            numParticles: 64,
+            boxSize: 12,
+            temperature: 1.0,
+            epsilon: 1.0,
+            sigma: 1.0,
+            timeStep: 0.005,
+            cutoffRadius: 2.5,
+            running: true,
+            displayBox: true,
+            showVelocityArrows: false,
+            targetTemperature: 1.0,
+            useNoseHooverThermostat: false,
+            thermostatStrength: 1.0
+        };
+
+        // Particle data structures
+        let particles = [];
+        let positions = [];
+        let velocities = [];
+        let forces = [];
+        let masses = [];
+
+        // ThreeJS objects
+        let scene, camera, renderer, controls;
+        let spheres = [];
+        let box;
+        let stats;
+        let gui;
+        
+        // Simulation variables
+        let simTime = 0;
+        let kineticEnergy = 0;
+        let potentialEnergy = 0;
+        let totalEnergy = 0;
+        
+        // Boltzmann constant (in reduced units)
+        const kB = 1.0;
+        
+        // Initialize the simulation
+        function init() {
+            // Set up ThreeJS scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xcccccc);
+            
+            // Set up camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(params.boxSize * 2, params.boxSize * 2, params.boxSize * 2);
+            camera.lookAt(new THREE.Vector3(0, 0, 0));
+            
+            // Set up renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('container').appendChild(renderer.domElement);
+            
+            // Set up orbit controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.25;
+            
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+            
+            // Add a box to represent the simulation boundaries
+            createSimulationBox();
+            
+            // Create particles
+            initializeParticles();
+            
+            // Set up stats
+            stats = new Stats();
+            document.body.appendChild(stats.dom);
+            
+            // Set up GUI
+            gui = new dat.GUI({ autoPlace: false });
+            document.getElementById('info').appendChild(gui.domElement);
+            gui.domElement.style.marginTop = '15px'; // Add some spacing
+            
+            // Set up event listeners
+            document.getElementById('start-pause').addEventListener('click', toggleSimulation);
+            document.getElementById('reset').addEventListener('click', resetSimulation);
+            
+            // Add window resize handler
+            window.addEventListener('resize', onWindowResize);
+            
+            // Start the animation loop
+            animate();
+        }
+        
+        // Create a wireframe box to represent the simulation boundaries
+        function createSimulationBox() {
+            if (box) scene.remove(box);
+            
+            const halfSize = params.boxSize / 2;
+            const geometry = new THREE.BoxGeometry(params.boxSize, params.boxSize, params.boxSize);
+            const edges = new THREE.EdgesGeometry(geometry);
+            box = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+            
+            if (params.displayBox) {
+                scene.add(box);
+            }
+        }
+        
+        // Initialize particles in a lattice arrangement
+        function initializeParticles() {
+            // Clear existing particles
+            for (let sphere of spheres) {
+                scene.remove(sphere);
+            }
+            
+            particles = [];
+            positions = [];
+            velocities = [];
+            forces = [];
+            masses = [];
+            spheres = [];
+            
+            // Calculate particles per dimension for a cubic lattice
+            const particlesPerDim = Math.ceil(Math.pow(params.numParticles, 1/3));
+            const spacing = params.boxSize / particlesPerDim;
+            const offset = params.boxSize / 2 - spacing / 2;
+            
+            let count = 0;
+            // Create particles on a grid
+            for (let i = 0; i < particlesPerDim && count < params.numParticles; i++) {
+                for (let j = 0; j < particlesPerDim && count < params.numParticles; j++) {
+                    for (let k = 0; k < particlesPerDim && count < params.numParticles; k++) {
+                        const x = i * spacing - offset;
+                        const y = j * spacing - offset;
+                        const z = k * spacing - offset;
+                        
+                        // Create ThreeJS sphere
+                        const radius = params.sigma / 2; // Radius based on sigma
+                        const geometry = new THREE.SphereGeometry(radius, 16, 16);
+                        const material = new THREE.MeshPhongMaterial({ 
+                            color: 0x3399ff, 
+                            specular: 0x555555, 
+                            shininess: 30 
+                        });
+                        const sphere = new THREE.Mesh(geometry, material);
+                        sphere.position.set(x, y, z);
+                        scene.add(sphere);
+                        spheres.push(sphere);
+                        
+                        // Add to particle data
+                        particles.push({ id: count });
+                        positions.push(new THREE.Vector3(x, y, z));
+                        masses.push(1.0); // All particles have the same mass (1.0 in reduced units)
+                        
+                        count++;
+                    }
+                }
+            }
+            
+            // Initialize velocities from Maxwell-Boltzmann distribution
+            initializeVelocities();
+            
+            // Calculate initial forces
+            forces = new Array(params.numParticles).fill().map(() => new THREE.Vector3(0, 0, 0));
+            calculateForces();
+            
+            // Update display
+            document.getElementById('particle-count').textContent = params.numParticles;
+        }
+        
+        // Initialize particle velocities based on Maxwell-Boltzmann distribution
+        function initializeVelocities() {
+            velocities = [];
+            
+            // Generate velocities using Box-Muller transform
+            for (let i = 0; i < params.numParticles; i++) {
+                const vx = boxMullerTransform() * Math.sqrt(params.temperature);
+                const vy = boxMullerTransform() * Math.sqrt(params.temperature);
+                const vz = boxMullerTransform() * Math.sqrt(params.temperature);
+                
+                velocities.push(new THREE.Vector3(vx, vy, vz));
+            }
+            
+            // Remove any net momentum
+            removeNetMomentum();
+            
+            // Scale velocities to match target temperature
+            scaleVelocitiesToTemperature(params.temperature);
+        }
+        
+        // Box-Muller transform for generating normal distribution
+        function boxMullerTransform() {
+            const u1 = Math.random();
+            const u2 = Math.random();
+            
+            const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+            return z;
+        }
+        
+        // Remove net momentum from the system
+        function removeNetMomentum() {
+            const totalMomentum = new THREE.Vector3(0, 0, 0);
+            const totalMass = masses.reduce((sum, mass) => sum + mass, 0);
+            
+            // Calculate total momentum
+            for (let i = 0; i < params.numParticles; i++) {
+                totalMomentum.add(velocities[i].clone().multiplyScalar(masses[i]));
+            }
+            
+            // Calculate center of mass velocity
+            const comVelocity = totalMomentum.clone().divideScalar(totalMass);
+            
+            // Subtract COM velocity from each particle
+            for (let i = 0; i < params.numParticles; i++) {
+                velocities[i].sub(comVelocity);
+            }
+        }
+        
+        // Scale velocities to match target temperature
+        function scaleVelocitiesToTemperature(targetTemp) {
+            // Calculate current kinetic energy
+            const currentKE = calculateKineticEnergy();
+            
+            // Calculate target kinetic energy: KE = 3/2 * N * kB * T
+            const targetKE = 1.5 * params.numParticles * kB * targetTemp;
+            
+            // Calculate scaling factor
+            const scaleFactor = Math.sqrt(targetKE / currentKE);
+            
+            // Scale all velocities
+            for (let i = 0; i < params.numParticles; i++) {
+                velocities[i].multiplyScalar(scaleFactor);
+            }
+            
+            // Recalculate kinetic energy
+            kineticEnergy = calculateKineticEnergy();
+        }
+        
+        // Calculate kinetic energy of the system
+        function calculateKineticEnergy() {
+            let ke = 0;
+            
+            for (let i = 0; i < params.numParticles; i++) {
+                const v2 = velocities[i].lengthSq();
+                ke += 0.5 * masses[i] * v2;
+            }
+            
+            return ke;
+        }
+        
+        // Calculate forces using Lennard-Jones potential
+        function calculateForces() {
+            // Reset forces
+            for (let i = 0; i < params.numParticles; i++) {
+                forces[i].set(0, 0, 0);
+            }
+            
+            // Reset potential energy
+            potentialEnergy = 0;
+            
+            // Calculate pairwise interactions
+            for (let i = 0; i < params.numParticles - 1; i++) {
+                for (let j = i + 1; j < params.numParticles; j++) {
+                    // Calculate distance vector with minimum image convention
+                    const rij = positions[i].clone().sub(positions[j]);
+                    
+                    // Apply periodic boundary conditions to distance vector
+                    applyMinimumImageConvention(rij);
+                    
+                    // Calculate squared distance
+                    const r2 = rij.lengthSq();
+                    
+                    // Check if within cutoff radius
+                    if (r2 < params.cutoffRadius * params.cutoffRadius) {
+                        // Calculate normalized direction vector
+                        const r = Math.sqrt(r2);
+                        const dir = rij.clone().divideScalar(r);
+                        
+                        // Calculate LJ force magnitude
+                        const force = calculateLennardJonesForce(r, params.epsilon, params.sigma);
+                        
+                        // Apply force to particles (F_ij = -F_ji)
+                        const forceVector = dir.multiplyScalar(force);
+                        forces[i].add(forceVector);
+                        forces[j].sub(forceVector);
+                        
+                        // Calculate potential energy contribution
+                        const pe = calculateLennardJonesPotential(r, params.epsilon, params.sigma);
+                        potentialEnergy += pe;
+                    }
+                }
+            }
+        }
+        
+        // Calculate Lennard-Jones force between two particles
+        function calculateLennardJonesForce(r, epsilon, sigma) {
+            // F(r) = 48 * epsilon / sigma^2 * [(sigma/r)^14 - 0.5 * (sigma/r)^8]
+            const sr = sigma / r;
+            const sr6 = Math.pow(sr, 6);
+            const sr8 = sr6 * sr * sr;
+            const sr14 = sr8 * sr6;
+            
+            return 48.0 * epsilon / (sigma * sigma) * (sr14 - 0.5 * sr8);
+        }
+        
+        // Calculate Lennard-Jones potential energy
+        function calculateLennardJonesPotential(r, epsilon, sigma) {
+            // V(r) = 4 * epsilon * [(sigma/r)^12 - (sigma/r)^6]
+            const sr = sigma / r;
+            const sr6 = Math.pow(sr, 6);
+            const sr12 = sr6 * sr6;
+            
+            return 4.0 * epsilon * (sr12 - sr6);
+        }
+        
+        // Apply minimum image convention for periodic boundary conditions
+        function applyMinimumImageConvention(rij) {
+            // Adjust each component to find shortest distance across periodic boundaries
+            if (rij.x > params.boxSize / 2) rij.x -= params.boxSize;
+            else if (rij.x < -params.boxSize / 2) rij.x += params.boxSize;
+            
+            if (rij.y > params.boxSize / 2) rij.y -= params.boxSize;
+            else if (rij.y < -params.boxSize / 2) rij.y += params.boxSize;
+            
+            if (rij.z > params.boxSize / 2) rij.z -= params.boxSize;
+            else if (rij.z < -params.boxSize / 2) rij.z += params.boxSize;
+        }
+        
+        // Apply periodic boundary conditions to particle position
+        function applyPeriodicBoundary() {
+            const halfSize = params.boxSize / 2;
+            
+            for (let i = 0; i < params.numParticles; i++) {
+                // X-dimension
+                if (positions[i].x < -halfSize) positions[i].x += params.boxSize;
+                else if (positions[i].x > halfSize) positions[i].x -= params.boxSize;
+                
+                // Y-dimension
+                if (positions[i].y < -halfSize) positions[i].y += params.boxSize;
+                else if (positions[i].y > halfSize) positions[i].y -= params.boxSize;
+                
+                // Z-dimension
+                if (positions[i].z < -halfSize) positions[i].z += params.boxSize;
+                else if (positions[i].z > halfSize) positions[i].z -= params.boxSize;
+            }
+        }
+        
+        // Velocity Verlet integrator
+        function integrateDynamics() {
+            const dt = params.timeStep;
+            const halfdt = dt / 2;
+            
+            // Step 1: v(t + dt/2) = v(t) + a(t) * dt/2
+            for (let i = 0; i < params.numParticles; i++) {
+                const acceleration = forces[i].clone().divideScalar(masses[i]);
+                velocities[i].addScaledVector(acceleration, halfdt);
+            }
+            
+            // Step 2: x(t + dt) = x(t) + v(t + dt/2) * dt
+            for (let i = 0; i < params.numParticles; i++) {
+                positions[i].addScaledVector(velocities[i], dt);
+            }
+            
+            // Apply periodic boundary conditions
+            applyPeriodicBoundary();
+            
+            // Step 3: Calculate forces at new positions
+            calculateForces();
+            
+            // Step 4: v(t + dt) = v(t + dt/2) + a(t + dt) * dt/2
+            for (let i = 0; i < params.numParticles; i++) {
+                const acceleration = forces[i].clone().divideScalar(masses[i]);
+                velocities[i].addScaledVector(acceleration, halfdt);
+            }
+            
+            // Apply thermostat if enabled
+            if (params.useNoseHooverThermostat) {
+                applyThermostat();
+            }
+            
+            // Calculate kinetic energy
+            kineticEnergy = calculateKineticEnergy();
+            
+            // Calculate total energy
+            totalEnergy = kineticEnergy + potentialEnergy;
+            
+            // Update simulation time
+            simTime += dt;
+        }
+        
+        // Apply a simple velocity scaling thermostat
+        function applyThermostat() {
+            // Calculate current temperature from kinetic energy
+            const currentKE = calculateKineticEnergy();
+            const currentTemp = (2.0 / 3.0) * currentKE / (params.numParticles * kB);
+            
+            // Calculate scaling factor using Nose-Hoover approach
+            // This is a simplified version that uses direct velocity scaling
+            if (currentTemp > 0) {
+                const scaleFactor = Math.sqrt(params.targetTemperature / currentTemp);
+                const alpha = 1.0 + params.thermostatStrength * params.timeStep * (scaleFactor - 1.0);
+                
+                // Scale velocities gradually towards target temperature
+                for (let i = 0; i < params.numParticles; i++) {
+                    velocities[i].multiplyScalar(alpha);
+                }
+            }
+        }
+        
+        // Calculate instantaneous temperature from kinetic energy
+        function calculateTemperature() {
+            // T = 2K / (3NkB)
+            return (2.0 / 3.0) * kineticEnergy / (params.numParticles * kB);
+        }
+        
+        // Update particle positions in the visualization
+        function updateParticlePositions() {
+            for (let i = 0; i < params.numParticles; i++) {
+                spheres[i].position.copy(positions[i]);
+            }
+        }
+        
+        // Update data display
+        function updateDataDisplay() {
+            const temperature = calculateTemperature();
+            
+            document.getElementById('temperature').textContent = temperature.toFixed(2);
+            document.getElementById('potential-energy').textContent = potentialEnergy.toFixed(2);
+            document.getElementById('kinetic-energy').textContent = kineticEnergy.toFixed(2);
+            document.getElementById('total-energy').textContent = totalEnergy.toFixed(2);
+            document.getElementById('sim-time').textContent = simTime.toFixed(2);
+        }
+        
+        // Toggle simulation running state
+        function toggleSimulation() {
+            params.running = !params.running;
+            const button = document.getElementById('start-pause');
+            button.textContent = params.running ? 'Pause' : 'Start';
+        }
+        
+        // Reset the simulation
+        function resetSimulation() {
+            simTime = 0;
+            initializeParticles();
+        }
+        
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // Main animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (params.running) {
+                // Perform integration step
+                integrateDynamics();
+                
+                // Update positions in the visualization
+                updateParticlePositions();
+                
+                // Update data display
+                updateDataDisplay();
+            }
+            
+            // Update controls
+            controls.update();
+            
+            // Update stats
+            stats.update();
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+        
+        // Start simulation when the page loads
+        window.onload = function() {
+            // Initialize the simulation
+            init();
+        };
+    </script>
+</body>
+</html>

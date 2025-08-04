@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Container Visualization</title>
+
+    <!-- Import Map for ES Modules -->
+    <script type="importmap">
+        {
+          "imports": {
+            "three": "https://cdn.skypack.dev/three@0.128.0",
+            "three/addons/": "https://cdn.skypack.dev/three@0.128.0/examples/jsm/"
+          }
+        }
+    </script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #container {
+            flex: 1;
+            position: relative;
+        }
+        #info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            width: 300px;
+            z-index: 100;
+        }
+        #box-info {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 18px;
+        }
+        #controls {
+            margin-top: 15px;
+        }
+        button {
+            padding: 8px 12px;
+            margin-right: 5px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .toggle-label {
+            color: white;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="info-panel">
+        <h1>3D Container Visualization</h1>
+        <div>Container dimensions: 1200×1000×1200</div>
+        <div>Total boxes: 55</div>
+        <div id="box-info">Click on a box to see its details</div>
+        <div id="controls">
+            <button id="toggle-container">Toggle Container</button>
+            <button id="toggle-selected">Toggle Selected Box</button>
+            <button id="reset-view">Reset View</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Main variables
+        let scene, camera, renderer, controls;
+        let container, boxes = [];
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        let selectedBox = null;
+        let containerVisible = true;
+        
+        // Container dimensions
+        const containerWidth = 1200;
+        const containerHeight = 1000;
+        const containerDepth = 1200;
+        
+        // Initialize the scene
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111133);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+            camera.position.set(1500, 1500, 1500);
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('container').appendChild(renderer.domElement);
+            
+            // Add orbit controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 1);
+            scene.add(ambientLight);
+            
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight1.position.set(1, 1, 1);
+            scene.add(directionalLight1);
+            
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight2.position.set(-1, -1, -1);
+            scene.add(directionalLight2);
+            
+            // Create container box
+            createContainer();
+            
+            // Generate and create internal boxes
+            const boxesData = generateBoxes();
+            createBoxes(boxesData);
+            
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('click', onClick);
+            
+            // UI Control buttons
+            document.getElementById('toggle-container').addEventListener('click', toggleContainer);
+            document.getElementById('toggle-selected').addEventListener('click', toggleSelectedBox);
+            document.getElementById('reset-view').addEventListener('click', resetView);
+            
+            // Start animation loop
+            animate();
+        }
+        
+        // Create container box (wireframe)
+        function createContainer() {
+            const geometry = new THREE.BoxGeometry(containerWidth, containerHeight, containerDepth);
+            const edges = new THREE.EdgesGeometry(geometry);
+            container = new THREE.LineSegments(
+                edges,
+                new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 })
+            );
+            
+            // Center the container at origin
+            container.position.set(0, 0, 0);
+            scene.add(container);
+            
+            // Add semi-transparent faces
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.05,
+                side: THREE.DoubleSide
+            });
+            const containerMesh = new THREE.Mesh(geometry, material);
+            containerMesh.position.set(0, 0, 0);
+            container.add(containerMesh);
+        }
+        
+        // Algorithm to generate 55 unique boxes that fill the container
+        function generateBoxes() {
+            // Strategy: Binary space partitioning with adjustments to ensure unique dimensions
+            // We'll start with the full container and recursively divide it
+            
+            const boxes = [];
+            const minDimension = 100; // Minimum box dimension
+            
+            // Initialize with the full container positioned at the origin (center)
+            const initialBox = {
+                x: -containerWidth / 2,
+                y: -containerHeight / 2,
+                z: -containerDepth / 2,
+                width: containerWidth,
+                height: containerHeight,
+                depth: containerDepth
+            };
+            
+            // Use a queue to process boxes
+            const queue = [initialBox];
+            
+            // Keep track of dimensions used to ensure uniqueness
+            const usedDimensions = new Set();
+            
+            // Function to check if dimensions are unique
+            function areDimensionsUnique(w, h, d) {
+                // We consider dimensions unique if the combination of width, height, depth is unique
+                // Order matters for our visualization (e.g., 100x200x300 is different from 200x100x300)
+                const key = `${w}_${h}_${d}`;
+                if (usedDimensions.has(key)) {
+                    return false;
+                }
+                usedDimensions.add(key);
+                return true;
+            }
+            
+            // Function to split a box into two parts
+            function splitBox(box, axis, ratio) {
+                const box1 = { ...box };
+                const box2 = { ...box };
+                
+                if (axis === 'x') {
+                    const splitWidth = Math.floor(box.width * ratio);
+                    box1.width = splitWidth;
+                    box2.width = box.width - splitWidth;
+                    box2.x = box.x + splitWidth;
+                } else if (axis === 'y') {
+                    const splitHeight = Math.floor(box.height * ratio);
+                    box1.height = splitHeight;
+                    box2.height = box.height - splitHeight;
+                    box2.y = box.y + splitHeight;
+                } else { // axis === 'z'
+                    const splitDepth = Math.floor(box.depth * ratio);
+                    box1.depth = splitDepth;
+                    box2.depth = box.depth - splitDepth;
+                    box2.z = box.z + splitDepth;
+                }
+                
+                return [box1, box2];
+            }
+            
+            // Function to find the best split for a box
+            function findBestSplit(box) {
+                // Try to split along each axis with different ratios
+                const possibleSplits = [];
+                
+                // Try different ratios for splitting
+                const ratios = [0.3, 0.4, 0.5, 0.6, 0.7];
+                
+                for (const ratio of ratios) {
+                    for (const axis of ['x', 'y', 'z']) {
+                        // Skip if the resulting dimensions would be too small
+                        if (axis === 'x' && (box.width * ratio < minDimension || box.width * (1-ratio) < minDimension)) continue;
+                        if (axis === 'y' && (box.height * ratio < minDimension || box.height * (1-ratio) < minDimension)) continue;
+                        if (axis === 'z' && (box.depth * ratio < minDimension || box.depth * (1-ratio) < minDimension)) continue;
+                        
+                        const [box1, box2] = splitBox(box, axis, ratio);
+                        
+                        // Check if both resulting boxes would have unique dimensions
+                        if (areDimensionsUnique(box1.width, box1.height, box1.depth) && 
+                            areDimensionsUnique(box2.width, box2.height, box2.depth)) {
+                            possibleSplits.push({ axis, ratio, uniqueness: 2 });
+                        } else if (areDimensionsUnique(box1.width, box1.height, box1.depth) || 
+                                  areDimensionsUnique(box2.width, box2.height, box2.depth)) {
+                            possibleSplits.push({ axis, ratio, uniqueness: 1 });
+                        } else {
+                            possibleSplits.push({ axis, ratio, uniqueness: 0 });
+                        }
+                        
+                        // Remove the dimensions we just checked from the used set
+                        // since we haven't actually added these boxes yet
+                        usedDimensions.delete(`${box1.width}_${box1.height}_${box1.depth}`);
+                        usedDimensions.delete(`${box2.width}_${box2.height}_${box2.depth}`);
+                    }
+                }
+                
+                // Sort by uniqueness (prefer splits that result in unique dimensions)
+                possibleSplits.sort((a, b) => b.uniqueness - a.uniqueness);
+                
+                // Return the best split or null if no valid split found
+                return possibleSplits.length > 0 ? possibleSplits[0] : null;
+            }
+            
+            // Add small variations to ensure uniqueness if needed
+            function ensureUniqueDimensions(box) {
+                const original = { ...box };
+                let attempts = 0;
+                const maxAttempts = 100;
+                
+                while (!areDimensionsUnique(box.width, box.height, box.depth) && attempts < maxAttempts) {
+                    // Reset to original dimensions
+                    box.width = original.width;
+                    box.height = original.height;
+                    box.depth = original.depth;
+                    
+                    // Apply small adjustments
+                    box.width = Math.max(minDimension, box.width + Math.floor(Math.random() * 21) - 10);
+                    box.height = Math.max(minDimension, box.height + Math.floor(Math.random() * 21) - 10);
+                    box.depth = Math.max(minDimension, box.depth + Math.floor(Math.random() * 21) - 10);
+                    
+                    attempts++;
+                }
+                
+                if (attempts >= maxAttempts) {
+                    // If we've tried too many times, make a more dramatic change
+                    box.width = Math.max(minDimension, original.width + 50 + Math.floor(Math.random() * 50));
+                    box.height = Math.max(minDimension, original.height + 50 + Math.floor(Math.random() * 50));
+                    box.depth = Math.max(minDimension, original.depth + 50 + Math.floor(Math.random() * 50));
+                    
+                    // Make one final attempt to ensure uniqueness
+                    areDimensionsUnique(box.width, box.height, box.depth);
+                }
+                
+                return box;
+            }
+            
+            // Main box generation loop
+            while (boxes.length < 55 && queue.length > 0) {
+                const currentBox = queue.shift();
+                
+                if (boxes.length === 54 && queue.length === 0) {
+                    // Last box - add as is if dimensions are unique, or adjust if needed
+                    const finalBox = ensureUniqueDimensions(currentBox);
+                    boxes.push(finalBox);
+                } else {
+                    // Find best split for current box
+                    const bestSplit = findBestSplit(currentBox);
+                    
+                    if (bestSplit) {
+                        // Split the box
+                        const [box1, box2] = splitBox(currentBox, bestSplit.axis, bestSplit.ratio);
+                        
+                        // Add box1 to final boxes (if we need more than one more box)
+                        if (boxes.length < 54) {
+                            boxes.push(box1);
+                            areDimensionsUnique(box1.width, box1.height, box1.depth); // Mark dimensions as used
+                            queue.push(box2);
+                        } else {
+                            // We only need one more box after this, so add both to queue
+                            // and let the algorithm choose the best one
+                            queue.push(box1, box2);
+                        }
+                    } else {
+                        // If no good split found, add current box as is (after ensuring uniqueness)
+                        const uniqueBox = ensureUniqueDimensions(currentBox);
+                        boxes.push(uniqueBox);
+                    }
+                }
+            }
+            
+            // Constraint check: no box touches more than 3 of container's outer faces
+            boxes.forEach(box => {
+                let touchCount = 0;
+                
+                // Check if the box touches each of the 6 container faces
+                if (box.x <= -containerWidth/2 + 1) touchCount++; // Left face
+                if (box.x + box.width >= containerWidth/2 - 1) touchCount++; // Right face
+                if (box.y <= -containerHeight/2 + 1) touchCount++; // Bottom face
+                if (box.y + box.height >= containerHeight/2 - 1) touchCount++; // Top face
+                if (box.z <= -containerDepth/2 + 1) touchCount++; // Back face
+                if (box.z + box.depth >= containerDepth/2 - 1) touchCount++; // Front face
+                
+                // If a box touches more than 3 faces, adjust it slightly
+                if (touchCount > 3) {
+                    // Shrink the box slightly on each dimension
+                    const shrinkAmount = 10;
+                    if (box.x <= -containerWidth/2 + 1) {
+                        box.x += shrinkAmount;
+                        box.width -= shrinkAmount;
+                    }
+                    if (box.x + box.width >= containerWidth/2 - 1) {
+                        box.width -= shrinkAmount;
+                    }
+                    if (box.y <= -containerHeight/2 + 1) {
+                        box.y += shrinkAmount;
+                        box.height -= shrinkAmount;
+                    }
+                    if (box.y + box.height >= containerHeight/2 - 1) {
+                        box.height -= shrinkAmount;
+                    }
+                    if (box.z <= -containerDepth/2 + 1) {
+                        box.z += shrinkAmount;
+                        box.depth -= shrinkAmount;
+                    }
+                    if (box.z + box.depth >= containerDepth/2 - 1) {
+                        box.depth -= shrinkAmount;
+                    }
+                }
+            });
+            
+            // If we didn't generate enough boxes, fill in with more divisions
+            while (boxes.length < 55) {
+                // Find the largest box to divide
+                const largestBoxIndex = boxes.reduce((maxIndex, box, index, array) => {
+                    const maxBox = array[maxIndex];
+                    const maxVolume = maxBox.width * maxBox.height * maxBox.depth;
+                    const currentVolume = box.width * box.height * box.depth;
+                    return currentVolume > maxVolume ? index : maxIndex;
+                }, 0);
+                
+                const boxToDivide = boxes[largestBoxIndex];
+                boxes.splice(largestBoxIndex, 1); // Remove this box
+                
+                // Determine which axis to split on (prefer the largest dimension)
+                let axis = 'x';
+                if (boxToDivide.height > boxToDivide.width && boxToDivide.height > boxToDivide.depth) {
+                    axis = 'y';
+                } else if (boxToDivide.depth > boxToDivide.width && boxToDivide.depth > boxToDivide.height) {
+                    axis = 'z';
+                }
+                
+                // Split at a random ratio between 0.3 and 0.7
+                const ratio = 0.3 + Math.random() * 0.4;
+                const [box1, box2] = splitBox(boxToDivide, axis, ratio);
+                
+                // Ensure unique dimensions for both new boxes
+                const uniqueBox1 = ensureUniqueDimensions(box1);
+                const uniqueBox2 = ensureUniqueDimensions(box2);
+                
+                boxes.push(uniqueBox1, uniqueBox2);
+            }
+            
+            // Final check: make sure we have exactly 55 boxes
+            console.assert(boxes.length === 55, `Generated ${boxes.length} boxes instead of 55`);
+            
+            // Convert from coordinate system to ThreeJS positioning and return
+            return boxes.map(box => ({
+                width: box.width,
+                height: box.height,
+                depth: box.depth,
+                position: [
+                    box.x + box.width/2,
+                    box.y + box.height/2,
+                    box.z + box.depth/2
+                ]
+            }));
+        }
+        
+        // Create all the internal boxes
+        function createBoxes(boxesData) {
+            // Generate a set of distinguishable colors
+            const colors = [];
+            for (let i = 0; i < 55; i++) {
+                // Use HSL color model to generate evenly distributed colors
+                const hue = (i / 55) * 360;
+                const saturation = 0.7 + Math.random() * 0.3; // 70-100%
+                const lightness = 0.4 + Math.random() * 0.3; // 40-70%
+                
+                const color = new THREE.Color().setHSL(hue/360, saturation, lightness);
+                colors.push(color);
+            }
+            
+            // Create each box
+            boxesData.forEach((boxData, index) => {
+                const [width, height, depth] = [boxData.width, boxData.height, boxData.depth];
+                const [x, y, z] = boxData.position;
+                
+                const geometry = new THREE.BoxGeometry(width, height, depth);
+                const material = new THREE.MeshLambertMaterial({
+                    color: colors[index],
+                    transparent: true,
+                    opacity: 0.8
+                });
+                
+                const box = new THREE.Mesh(geometry, material);
+                box.position.set(x, y, z);
+                
+                // Store original color and dimensions for later reference
+                box.userData = {
+                    originalColor: colors[index].clone(),
+                    width: width,
+                    height: height,
+                    depth: depth,
+                    volume: width * height * depth,
+                    index: index + 1 // 1-based index for display
+                };
+                
+                scene.add(box);
+                boxes.push(box);
+            });
+        }
+        
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // Handle click events for box selection
+        function onClick(event) {
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            // Update the raycaster
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Check for intersections with boxes
+            const intersects = raycaster.intersectObjects(boxes);
+            
+            if (intersects.length > 0) {
+                const clickedBox = intersects[0].object;
+                
+                // If clicking on already selected box, deselect it
+                if (selectedBox === clickedBox) {
+                    deselectBox();
+                } else {
+                    // Otherwise, select the clicked box
+                    selectBox(clickedBox);
+                }
+            } else {
+                // Clicked on empty space, deselect current box
+                deselectBox();
+            }
+        }
+        
+        // Select a box
+        function selectBox(box) {
+            // Deselect previous box if any
+            deselectBox();
+            
+            // Highlight the new selected box
+            selectedBox = box;
+            selectedBox.material.emissive = new THREE.Color(0x555555);
+            selectedBox.material.emissiveIntensity = 1;
+            selectedBox.material.opacity = 1.0;
+            
+            // Update info panel
+            const boxInfo = document.getElementById('box-info');
+            const { width, height, depth, volume, index } = box.userData;
+            boxInfo.innerHTML = `
+                <strong>Box #${index}</strong><br>
+                Width: ${width.toFixed(0)}<br>
+                Height: ${height.toFixed(0)}<br>
+                Depth: ${depth.toFixed(0)}<br>
+                Volume: ${volume.toFixed(0)} cubic units
+            `;
+        }
+        
+        // Deselect the currently selected box
+        function deselectBox() {
+            if (selectedBox) {
+                selectedBox.material.emissive = new THREE.Color(0x000000);
+                selectedBox.material.opacity = 0.8;
+                selectedBox = null;
+                
+                // Reset info panel
+                const boxInfo = document.getElementById('box-info');
+                boxInfo.innerHTML = 'Click on a box to see its details';
+            }
+        }
+        
+        // Toggle container visibility
+        function toggleContainer() {
+            containerVisible = !containerVisible;
+            container.visible = containerVisible;
+        }
+        
+        // Toggle visibility of selected box
+        function toggleSelectedBox() {
+            if (selectedBox) {
+                selectedBox.visible = !selectedBox.visible;
+            }
+        }
+        
+        // Reset camera view
+        function resetView() {
+            camera.position.set(1500, 1500, 1500);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        // Start the application
+        init();
+    </script>
+</body>
+</html>

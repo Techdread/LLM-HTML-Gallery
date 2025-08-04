@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Procedural Planet Generator</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            max-width: 300px;
+            z-index: 10;
+        }
+
+        .info h1 {
+            margin-top: 0;
+            font-size: 24px;
+            color: #4fc3f7;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 30px;
+            z-index: 10;
+        }
+
+        .control-btn {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .control-btn:hover {
+            background: #0d47a1;
+            transform: translateY(-2px);
+        }
+
+        .control-btn:active {
+            transform: translateY(1px);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="info">
+        <h1>Procedural Planet Generator</h1>
+        <p>This planet features:</p>
+        <ul>
+            <li>Realistic terrain with mountains, valleys and plains</li>
+            <li>Diverse biomes based on elevation and latitude</li>
+            <li>Atmospheric glow effect</li>
+            <li>Oceans with reflective surfaces</li>
+            <li>Procedural cloud layer</li>
+        </ul>
+    </div>
+
+    <div class="controls">
+        <button id="rotateBtn" class="control-btn">Pause Rotation</button>
+        <button id="resetBtn" class="control-btn">Reset View</button>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Scene setup
+        let scene, camera, renderer, controls;
+        let planet, atmosphere, ocean, clouds;
+        let rotationEnabled = true;
+        let rotationSpeed = 0.002;
+
+        init();
+        animate();
+
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000814);
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.set(0, 0, 35);
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Add orbit controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 15;
+            controls.maxDistance = 100;
+
+            // Create the planet with terrain
+            createPlanet();
+
+            // Add lighting
+            setupLighting();
+
+            // Add stars in background
+            addStars();
+
+            // Event listeners for UI controls
+            document.getElementById('rotateBtn').addEventListener('click', toggleRotation);
+            document.getElementById('resetBtn').addEventListener('click', resetView);
+
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function createPlanet() {
+            // Create planet geometry with custom terrain
+            const planetGeometry = new THREE.SphereGeometry(10, 64, 64);
+
+            // Generate terrain using noise functions
+            generateTerrain(planetGeometry);
+
+            // Create planet material with biome-based coloring
+            const planetMaterial = createPlanetMaterial();
+
+            // Create planet mesh
+            planet = new THREE.Mesh(planetGeometry, planetMaterial);
+            scene.add(planet);
+
+            // Create atmosphere layer
+            createAtmosphere();
+
+            // Create ocean
+            createOcean();
+
+            // Create clouds
+            createClouds();
+        }
+
+        function generateTerrain(geometry) {
+            const vertices = geometry.attributes.position.array;
+            const count = vertices.length / 3;
+
+            // Apply noise to vertices for terrain generation
+            for (let i = 0; i < count; i++) {
+                const index = i * 3;
+
+                // Get original position
+                let x = vertices[index];
+                let y = vertices[index + 1];
+                let z = vertices[index + 2];
+
+                // Normalize coordinates
+                const length = Math.sqrt(x * x + y * y + z * z);
+                const nx = x / length;
+                const ny = y / length;
+                const nz = z / length;
+
+                // Apply noise to create terrain features
+                const noiseValue = Math.sin(nx * 5) * Math.cos(ny * 3) * Math.sin(nz * 7) +
+                    Math.sin(nx * 2) * Math.cos(ny * 4) * Math.sin(nz * 3);
+
+                // Adjust terrain elevation
+                const elevation = noiseValue * 1.5;
+                vertices[index] += nx * elevation;
+                vertices[index + 1] += ny * elevation;
+                vertices[index + 2] += nz * elevation;
+            }
+
+            geometry.computeVertexNormals();
+            geometry.attributes.position.needsUpdate = true;
+        }
+
+        function createPlanetMaterial() {
+            // Create custom shader material for planet with biome coloring
+            const vertexShader = `
+                varying vec3 vNormal;
+                varying vec3 vPosition;
+                
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    vPosition = position;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `;
+
+            const fragmentShader = `
+                uniform float time;
+                varying vec3 vNormal;
+                varying vec3 vPosition;
+                
+                // Noise function for procedural textures
+                float noise(vec3 p) {
+                    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+                }
+                
+                void main() {
+                    // Base color based on position
+                    float elevation = length(vPosition) - 10.0;
+                    
+                    // Normalize normal for lighting calculations
+                    vec3 normal = normalize(vNormal);
+                    
+                    // Determine biome based on elevation and latitude
+                    float lat = asin(vPosition.y / 10.0); // Latitude
+                    
+                    vec3 color;
+                    
+                    if (elevation > 2.5) {
+                        // Mountains - white snow
+                        color = vec3(0.9, 0.9, 0.9);
+                    } else if (elevation > 1.0) {
+                        // Hills - brown
+                        color = mix(vec3(0.6, 0.4, 0.2), vec3(0.8, 0.6, 0.4), elevation * 0.5);
+                    } else if (elevation > 0.1) {
+                        // Plains - green
+                        color = mix(vec3(0.2, 0.6, 0.2), vec3(0.4, 0.8, 0.4), elevation * 0.5);
+                    } else if (elevation > -0.1) {
+                        // Lowlands - green
+                        color = mix(vec3(0.1, 0.5, 0.1), vec3(0.2, 0.7, 0.2), elevation * 0.5);
+                    } else if (elevation > -0.5) {
+                        // Ocean - blue
+                        color = mix(vec3(0.1, 0.3, 0.6), vec3(0.2, 0.4, 0.8), elevation * 0.5);
+                    } else {
+                        // Deep ocean - dark blue
+                        color = vec3(0.0, 0.1, 0.3);
+                    }
+                    
+                    // Add some texture variation
+                    float n = noise(vPosition * 2.0 + time * 0.01);
+                    color += vec3(n * 0.05);
+                    
+                    gl_FragColor = vec4(color, 1.0);
+                }
+            `;
+
+            return new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 }
+                },
+                vertexShader: vertexShader,
+                fragmentShader: fragmentShader
+            });
+        }
+
+        function createAtmosphere() {
+            const atmosphereGeometry = new THREE.SphereGeometry(10.5, 64, 64);
+
+            const atmosphereMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vPosition;
+                    
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vPosition = position;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    varying vec3 vNormal;
+                    varying vec3 vPosition;
+                    
+                    void main() {
+                        // Create atmospheric glow effect
+                        float intensity = pow(0.5 - dot(vNormal, vec3(0, 0, 1)), 4.0);
+                        
+                        // Blue atmosphere with fading edge
+                        vec3 color = mix(vec3(0.2, 0.4, 0.8), vec3(0.0, 0.0, 0.0), intensity * 0.5 + 0.1);
+                        
+                        gl_FragColor = vec4(color, intensity * 0.7);
+                    }
+                `,
+                transparent: true,
+                side: THREE.BackSide
+            });
+
+            atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+            scene.add(atmosphere);
+        }
+
+        function createOcean() {
+            const oceanGeometry = new THREE.SphereGeometry(9.8, 64, 64);
+
+            // Create ocean material with reflective properties
+            const oceanMaterial = new THREE.MeshPhongMaterial({
+                color: 0x1a5fb4,
+                transparent: true,
+                opacity: 0.7,
+                specular: 0xffffff,
+                shininess: 100,
+                side: THREE.DoubleSide
+            });
+
+            ocean = new THREE.Mesh(oceanGeometry, oceanMaterial);
+            scene.add(ocean);
+        }
+
+        function createClouds() {
+            const cloudGeometry = new THREE.SphereGeometry(10.3, 64, 64);
+
+            // Create procedural cloud material
+            const cloudMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vPosition;
+                    
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vPosition = position;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    varying vec3 vNormal;
+                    varying vec3 vPosition;
+                    
+                    // Simple noise function
+                    float noise(vec3 p) {
+                        return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+                    }
+                    
+                    void main() {
+                        // Create cloud pattern with noise
+                        float n = noise(vPosition * 2.0 + time * 0.01);
+                        
+                        // Simple cloud shape - denser in center, thinner at edges
+                        vec3 cloudColor = vec3(1.0, 1.0, 1.0) * (n * 0.8 + 0.2);
+                        
+                        // Create some variation with distance from center
+                        float distFromCenter = length(vPosition) - 10.3;
+                        float density = max(0.0, 1.0 - abs(distFromCenter));
+                        
+                        // Combine noise and distance for cloud shape
+                        float alpha = clamp(n * density * 0.5 + 0.2, 0.0, 1.0);
+                        
+                        gl_FragColor = vec4(cloudColor, alpha * 0.3);
+                    }
+                `,
+                transparent: true,
+                side: THREE.DoubleSide
+            });
+
+            clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
+            scene.add(clouds);
+        }
+
+        function setupLighting() {
+            // Create directional light (sun)
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            sunLight.position.set(5, 3, 5);
+            scene.add(sunLight);
+
+            // Add ambient light for better visibility
+            const ambientLight = new THREE.AmbientLight(0x222222);
+            scene.add(ambientLight);
+        }
+
+        function addStars() {
+            const starGeometry = new THREE.BufferGeometry();
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.2,
+                transparent: true
+            });
+
+            const starVertices = [];
+            for (let i = 0; i < 10000; i++) {
+                const x = (Math.random() - 0.5) * 2000;
+                const y = (Math.random() - 0.5) * 2000;
+                const z = (Math.random() - 0.5) * 2000;
+                starVertices.push(x, y, z);
+            }
+
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+
+        function toggleRotation() {
+            rotationEnabled = !rotationEnabled;
+            document.getElementById('rotateBtn').textContent =
+                rotationEnabled ? 'Pause Rotation' : 'Resume Rotation';
+        }
+
+        function resetView() {
+            camera.position.set(0, 0, 35);
+            controls.reset();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Update time for shaders
+            const elapsedTime = performance.now() * 0.001;
+
+            if (planet) planet.material.uniforms.time.value = elapsedTime;
+            if (atmosphere) atmosphere.material.uniforms.time.value = elapsedTime;
+            if (clouds) clouds.material.uniforms.time.value = elapsedTime;
+
+            // Rotate planet and clouds
+            if (rotationEnabled) {
+                if (planet) planet.rotation.y += rotationSpeed;
+                if (ocean) ocean.rotation.y += rotationSpeed * 0.8;
+                if (clouds) clouds.rotation.y += rotationSpeed * 1.2;
+            }
+
+            // Update controls
+            controls.update();
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+
+</html>

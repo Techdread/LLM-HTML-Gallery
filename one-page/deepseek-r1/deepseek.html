@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dyson Sphere Simulation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        header {
+            padding: 1rem 2rem;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 10;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            background: linear-gradient(90deg, #00dbde, #fc00ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+            margin-bottom: 0.5rem;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #a0a0e0;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .container {
+            display: flex;
+            flex: 1;
+            position: relative;
+        }
+        
+        #scene-container {
+            flex: 1;
+            position: relative;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .controls-panel {
+            width: 300px;
+            background: rgba(10, 10, 30, 0.8);
+            backdrop-filter: blur(10px);
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1.5rem;
+            overflow-y: auto;
+            z-index: 5;
+        }
+        
+        .panel-title {
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: #6cf;
+        }
+        
+        .control-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .control-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #a0a0e0;
+        }
+        
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .slider-container input[type="range"] {
+            flex: 1;
+            height: 6px;
+            background: rgba(100, 100, 150, 0.3);
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #6cf;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        .slider-value {
+            width: 50px;
+            text-align: center;
+            background: rgba(100, 100, 200, 0.2);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 0.5rem;
+        }
+        
+        button {
+            flex: 1;
+            padding: 0.6rem;
+            background: linear-gradient(90deg, #00dbde, #fc00ff);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 0.5rem;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #444;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background: linear-gradient(90deg, #00dbde, #fc00ff);
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        
+        .stats-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stat-label {
+            color: #a0a0e0;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+            color: #6cf;
+        }
+        
+        .progress-bar {
+            height: 8px;
+            background: rgba(100, 100, 150, 0.3);
+            border-radius: 4px;
+            margin-top: 1rem;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00dbde, #fc00ff);
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .info-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            border-radius: 8px;
+            max-width: 400px;
+            z-index: 5;
+        }
+        
+        .info-panel h3 {
+            margin-bottom: 0.5rem;
+            color: #6cf;
+        }
+        
+        .info-panel p {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: #ccc;
+        }
+        
+        .construction-rate {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 1rem;
+        }
+        
+        .construction-rate input {
+            flex: 1;
+            padding: 0.4rem;
+            background: rgba(100, 100, 200, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            color: white;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .controls-panel {
+                width: 100%;
+                height: 300px;
+                border-left: none;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            
+            .info-panel {
+                max-width: 90%;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>DYSON SPHERE CONSTRUCTION SIMULATOR</h1>
+        <div class="subtitle">Visualizing the megastructure construction process through time</div>
+    </header>
+    
+    <div class="container">
+        <div id="scene-container"></div>
+        
+        <div class="controls-panel">
+            <h2 class="panel-title">CONSTRUCTION CONTROLS</h2>
+            
+            <div class="control-group">
+                <label class="control-label">Construction Progress: <span id="progress-value">0%</span></label>
+                <div class="slider-container">
+                    <input type="range" id="progress-slider" min="0" max="100" value="0">
+                    <span class="slider-value">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+            </div>
+            
+            <div class="button-group">
+                <button id="start-btn">START</button>
+                <button id="pause-btn">PAUSE</button>
+                <button id="reset-btn">RESET</button>
+            </div>
+            
+            <div class="control-group">
+                <label class="control-label">Star Brightness</label>
+                <div class="slider-container">
+                    <input type="range" id="brightness-slider" min="50" max="200" value="100">
+                    <span class="slider-value" id="brightness-value">100%</span>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <div class="toggle-container">
+                    <label class="control-label">Show Collectors</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-collectors" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <div class="toggle-container">
+                    <label class="control-label">Collector Animation</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-animation" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <div class="construction-rate">
+                    <label class="control-label">Construction Rate:</label>
+                    <input type="number" id="construction-rate" min="0.1" max="10" step="0.1" value="1.0">
+                    <span>%/sec</span>
+                </div>
+            </div>
+            
+            <div class="stats-container">
+                <h3>CONSTRUCTION STATISTICS</h3>
+                <div class="stat-item">
+                    <span class="stat-label">Collectors Built:</span>
+                    <span class="stat-value" id="collectors-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Energy Harvested:</span>
+                    <span class="stat-value" id="energy-value">0 PW</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Time Elapsed:</span>
+                    <span class="stat-value" id="time-elapsed">0 years</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Time Remaining:</span>
+                    <span class="stat-value" id="time-remaining">100 years</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="info-panel">
+        <h3>ABOUT THE DYSON SPHERE</h3>
+        <p>A Dyson Sphere is a hypothetical megastructure that completely encompasses a star and captures a large percentage of its power output. This simulation visualizes the progressive construction of such a structure over time.</p>
+        <p>Use the controls to adjust the construction progress, star brightness, and toggle collector visibility. Drag to rotate the view, and scroll to zoom in and out.</p>
+    </div>
+    
+    <script>
+        // Main variables
+        let scene, camera, renderer, controls;
+        let star, corona, dysonSphere;
+        let collectors = [];
+        let isAnimating = false;
+        let constructionProgress = 0;
+        let constructionRate = 1.0; // % per second
+        let animationSpeed = 0.002;
+        let startTime = Date.now();
+        let elapsedTime = 0;
+        let collectorCount = 0;
+        
+        // DOM Elements
+        const progressSlider = document.getElementById('progress-slider');
+        const progressValue = document.getElementById('progress-value');
+        const brightnessSlider = document.getElementById('brightness-slider');
+        const brightnessValue = document.getElementById('brightness-value');
+        const startBtn = document.getElementById('start-btn');
+        const pauseBtn = document.getElementById('pause-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const toggleCollectors = document.getElementById('toggle-collectors');
+        const toggleAnimation = document.getElementById('toggle-animation');
+        const constructionRateInput = document.getElementById('construction-rate');
+        const progressFill = document.getElementById('progress-fill');
+        const collectorsCount = document.getElementById('collectors-count');
+        const energyValue = document.getElementById('energy-value');
+        const timeElapsed = document.getElementById('time-elapsed');
+        const timeRemaining = document.getElementById('time-remaining');
+        
+        // Initialize the scene
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000022);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 30;
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('scene-container').appendChild(renderer.domElement);
+            
+            // Create orbit controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 15;
+            controls.maxDistance = 100;
+            
+            // Create star
+            createStar();
+            
+            // Create corona
+            createCorona();
+            
+            // Create Dyson sphere collectors
+            createDysonSphere();
+            
+            // Add ambient light
+            const ambientLight = new THREE.AmbientLight(0x333333);
+            scene.add(ambientLight);
+            
+            // Add directional light
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+            
+            // Add stars in background
+            createStars();
+            
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+            progressSlider.addEventListener('input', updateProgress);
+            brightnessSlider.addEventListener('input', updateBrightness);
+            startBtn.addEventListener('click', startConstruction);
+            pauseBtn.addEventListener('click', pauseConstruction);
+            resetBtn.addEventListener('click', resetConstruction);
+            toggleCollectors.addEventListener('change', toggleCollectorsVisibility);
+            toggleAnimation.addEventListener('change', toggleCollectorsAnimation);
+            constructionRateInput.addEventListener('change', updateConstructionRate);
+            
+            // Start animation loop
+            animate();
+        }
+        
+        // Create the central star
+        function createStar() {
+            const geometry = new THREE.SphereGeometry(5, 64, 64);
+            
+            // Create sunspots texture
+            const sunspotTexture = new THREE.CanvasTexture(createSunspotTexture());
+            
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xffffaa,
+                emissive: 0xffff00,
+                emissiveIntensity: 1.0,
+                map: sunspotTexture
+            });
+            
+            star = new THREE.Mesh(geometry, material);
+            scene.add(star);
+        }
+        
+        // Create sunspot texture
+        function createSunspotTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            
+            // Create gradient
+            const gradient = ctx.createRadialGradient(256, 256, 0, 256, 256, 256);
+            gradient.addColorStop(0, '#ffaa00');
+            gradient.addColorStop(1, '#ff6600');
+            
+            // Draw gradient
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 512, 512);
+            
+            // Add sunspots
+            ctx.fillStyle = 'rgba(100, 50, 0, 0.3)';
+            for (let i = 0; i < 20; i++) {
+                const x = 100 + Math.random() * 312;
+                const y = 100 + Math.random() * 312;
+                const radius = 10 + Math.random() * 30;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            return canvas;
+        }
+        
+        // Create the star corona
+        function createCorona() {
+            const coronaGeometry = new THREE.BufferGeometry();
+            const particleCount = 2000;
+            const positions = new Float32Array(particleCount * 3);
+            
+            for (let i = 0; i < particleCount * 3; i += 3) {
+                const radius = 5 + Math.random() * 3;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                
+                positions[i] = radius * Math.sin(phi) * Math.cos(theta);
+                positions[i + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                positions[i + 2] = radius * Math.cos(phi);
+            }
+            
+            coronaGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const coronaMaterial = new THREE.PointsMaterial({
+                color: 0xffaa00,
+                size: 0.05,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            corona = new THREE.Points(coronaGeometry, coronaMaterial);
+            scene.add(corona);
+        }
+        
+        // Create the Dyson sphere collectors
+        function createDysonSphere() {
+            dysonSphere = new THREE.Group();
+            scene.add(dysonSphere);
+            
+            // Create collectors (hexagons)
+            const collectorGeometry = new THREE.CircleGeometry(0.3, 6);
+            const collectorMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00aaff,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            const collectorCount = 2000;
+            
+            for (let i = 0; i < collectorCount; i++) {
+                // Position collectors on a sphere
+                const radius = 15;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                
+                const x = radius * Math.sin(phi) * Math.cos(theta);
+                const y = radius * Math.sin(phi) * Math.sin(theta);
+                const z = radius * Math.cos(phi);
+                
+                const collector = new THREE.Mesh(collectorGeometry, collectorMaterial.clone());
+                collector.position.set(x, y, z);
+                
+                // Make collector face outward
+                collector.lookAt(0, 0, 0);
+                
+                // Random rotation for variety
+                collector.rotation.z = Math.random() * Math.PI * 2;
+                
+                // Set initial visibility
+                collector.visible = false;
+                
+                dysonSphere.add(collector);
+                collectors.push(collector);
+            }
+        }
+        
+        // Create background stars
+        function createStars() {
+            const starsGeometry = new THREE.BufferGeometry();
+            const starsMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.1,
+                sizeAttenuation: true
+            });
+            
+            const starsVertices = [];
+            for (let i = 0; i < 10000; i++) {
+                const x = (Math.random() - 0.5) * 2000;
+                const y = (Math.random() - 0.5) * 2000;
+                const z = (Math.random() - 0.5) * 2000;
+                starsVertices.push(x, y, z);
+            }
+            
+            starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3));
+            const stars = new THREE.Points(starsGeometry, starsMaterial);
+            scene.add(stars);
+        }
+        
+        // Update construction progress
+        function updateProgress() {
+            constructionProgress = parseInt(progressSlider.value);
+            progressValue.textContent = constructionProgress + '%';
+            document.querySelector('.slider-value').textContent = constructionProgress + '%';
+            progressFill.style.width = constructionProgress + '%';
+            
+            // Update collectors visibility based on progress
+            const visibleCount = Math.floor(collectors.length * (constructionProgress / 100));
+            
+            collectors.forEach((collector, index) => {
+                collector.visible = index < visibleCount;
+            });
+            
+            collectorCount = visibleCount;
+            updateStats();
+        }
+        
+        // Update star brightness
+        function updateBrightness() {
+            const brightness = parseInt(brightnessSlider.value);
+            brightnessValue.textContent = brightness + '%';
+            star.material.emissiveIntensity = brightness / 100;
+        }
+        
+        // Start construction animation
+        function startConstruction() {
+            isAnimating = true;
+            startTime = Date.now() - elapsedTime * 1000;
+        }
+        
+        // Pause construction animation
+        function pauseConstruction() {
+            isAnimating = false;
+        }
+        
+        // Reset construction
+        function resetConstruction() {
+            isAnimating = false;
+            constructionProgress = 0;
+            progressSlider.value = 0;
+            elapsedTime = 0;
+            updateProgress();
+            updateStats();
+        }
+        
+        // Toggle collectors visibility
+        function toggleCollectorsVisibility() {
+            dysonSphere.visible = toggleCollectors.checked;
+        }
+        
+        // Toggle collectors animation
+        function toggleCollectorsAnimation() {
+            animationSpeed = toggleAnimation.checked ? 0.002 : 0;
+        }
+        
+        // Update construction rate
+        function updateConstructionRate() {
+            constructionRate = parseFloat(constructionRateInput.value) || 1.0;
+        }
+        
+        // Update statistics display
+        function updateStats() {
+            collectorsCount.textContent = collectorCount.toLocaleString();
+            energyValue.textContent = (constructionProgress * 3.86e26 / 1e15).toFixed(2) + " PW";
+            
+            const yearsElapsed = (elapsedTime / (60 * 60 * 24 * 365.25)).toFixed(1);
+            timeElapsed.textContent = yearsElapsed + " years";
+            
+            if (constructionProgress < 100) {
+                const remainingTime = (100 - constructionProgress) / constructionRate;
+                const yearsRemaining = (remainingTime / (60 * 60 * 24 * 365.25)).toFixed(1);
+                timeRemaining.textContent = yearsRemaining + " years";
+            } else {
+                timeRemaining.textContent = "Complete";
+            }
+        }
+        
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Update time
+            if (isAnimating) {
+                elapsedTime = (Date.now() - startTime) / 1000;
+                constructionProgress = Math.min(100, elapsedTime * constructionRate);
+                progressSlider.value = constructionProgress;
+                updateProgress();
+            }
+            
+            // Rotate star
+            star.rotation.y += 0.001;
+            
+            // Rotate corona particles
+            corona.rotation.y += 0.0005;
+            
+            // Animate collectors
+            dysonSphere.rotation.y += animationSpeed;
+            
+            // Update controls
+            controls.update();
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+        
+        // Initialize the application
+        init();
+    </script>
+</body>
+</html>

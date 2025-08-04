@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fruit Packing Algorithms Visualization</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 15px;
+            color: white;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 165, 0, 0.3);
+            max-width: 350px;
+        }
+        
+        #stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 15px;
+            color: white;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 165, 0, 0.3);
+            min-width: 250px;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #ffa500;
+        }
+        
+        select, input[type="range"], input[type="number"], button {
+            width: 100%;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 165, 0, 0.5);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            font-size: 14px;
+        }
+        
+        select option {
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            border: none;
+        }
+        
+        select optgroup {
+            background: rgba(255, 165, 0, 0.2);
+            color: #ffa500;
+            font-weight: bold;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #ff8c00, #ffa500);
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+            color: #000;
+        }
+        
+        button:hover {
+            background: linear-gradient(45deg, #ffa500, #ff8c00);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 165, 0, 0.4);
+        }
+        
+        .range-display {
+            text-align: right;
+            color: #ffcc80;
+            font-size: 12px;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255, 165, 0, 0.2);
+        }
+        
+        .stat-label {
+            color: #ffcc80;
+        }
+        
+        .stat-value {
+            color: #ffa500;
+            font-weight: bold;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            z-index: 200;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            display: none;
+            border: 1px solid #ffa500;
+        }
+        
+        .algorithm-description {
+            font-size: 12px;
+            color: #ffcc80;
+            font-style: italic;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="controls">
+            <h3 style="margin-top: 0; color: #ffa500;">📦 Product Packing Algorithms</h3>
+            
+            <div class="control-group">
+                <label for="algorithm">Packing Strategy:</label>
+                <select id="algorithm">
+                    <option value="layered_hexagonal">Layered Hexagonal (Spheres)</option>
+                    <option value="layered_square">Layered Square Grid</option>
+                    <option value="pyramid_stacking">Pyramid Stacking (Spheres)</option>
+                    <option value="offset_layers">Offset Layer Stacking</option>
+                    <option value="tight_hexagonal">Tight Hexagonal (Spheres)</option>
+                    <option value="brick_pattern">Brick Pattern Layers</option>
+                    <option value="tetrahedral">Tetrahedral (Spheres)</option>
+                    <option value="corner_fill">Corner-Fill Strategy</option>
+                    <option value="dense_random">Dense Random Fill</option>
+                    <option value="oval_nested">Oval Nested Layers</option>
+                    <option value="oval_aligned">Oval Aligned Rows</option>
+                    <option value="oval_egg_crate">Egg Crate Pattern</option>
+                    <option value="oval_honeycomb">Oval Honeycomb</option>
+                </select>
+                <div class="algorithm-description" id="algorithmDesc">
+                    Industry standard for optimal space utilization
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label for="productType">Product Type:</label>
+                <select id="productType">
+                    <optgroup label="Spherical Fruits">
+                        <option value="orange">Orange (7cm diameter)</option>
+                        <option value="apple">Apple (8cm diameter)</option>
+                        <option value="grapefruit">Grapefruit (12cm diameter)</option>
+                        <option value="lime">Lime (5cm diameter)</option>
+                    </optgroup>
+                    <optgroup label="Oval/Ellipsoidal">
+                        <option value="lemon">Lemon (6×4cm)</option>
+                        <option value="egg_large">Large Egg (6×4.5cm)</option>
+                        <option value="egg_medium">Medium Egg (5.5×4cm)</option>
+                        <option value="avocado">Avocado (9×6cm)</option>
+                        <option value="kiwi">Kiwi (6×4.5cm)</option>
+                        <option value="plum">Plum (5×4cm)</option>
+                    </optgroup>
+                    <optgroup label="Custom">
+                        <option value="custom_sphere">Custom Sphere</option>
+                        <option value="custom_oval">Custom Oval</option>
+                    </optgroup>
+                </select>
+            </div>
+            
+            <div class="control-group" id="sphereCustomGroup" style="display: none;">
+                <label for="sphereDiameter">Diameter (cm):</label>
+                <input type="range" id="sphereDiameter" min="3" max="15" step="0.5" value="7">
+                <div class="range-display" id="sphereDiameterDisplay">7 cm</div>
+            </div>
+            
+            <div class="control-group" id="ovalCustomGroup" style="display: none;">
+                <label for="ovalLength">Length (cm):</label>
+                <input type="range" id="ovalLength" min="3" max="15" step="0.5" value="6">
+                <div class="range-display" id="ovalLengthDisplay">6 cm</div>
+                
+                <label for="ovalWidth">Width (cm):</label>
+                <input type="range" id="ovalWidth" min="2" max="12" step="0.5" value="4">
+                <div class="range-display" id="ovalWidthDisplay">4 cm</div>
+                
+                <label for="ovalHeight">Height (cm):</label>
+                <input type="range" id="ovalHeight" min="2" max="12" step="0.5" value="4">
+                <div class="range-display" id="ovalHeightDisplay">4 cm</div>
+            </div>
+            
+            <div class="control-group" id="orientationGroup" style="display: none;">
+                <label for="allowRotation">Allow Rotation:</label>
+                <select id="allowRotation">
+                    <option value="all">All Orientations</option>
+                    <option value="horizontal_only">Horizontal Only</option>
+                    <option value="vertical_only">Vertical Only</option>
+                    <option value="natural">Natural Position</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="boxLength">Box Length (cm):</label>
+                <input type="range" id="boxLength" min="30" max="100" value="60">
+                <div class="range-display" id="boxLengthDisplay">60 cm</div>
+            </div>
+            
+            <div class="control-group">
+                <label for="boxWidth">Box Width (cm):</label>
+                <input type="range" id="boxWidth" min="30" max="80" value="40">
+                <div class="range-display" id="boxWidthDisplay">40 cm</div>
+            </div>
+            
+            <div class="control-group">
+                <label for="boxHeight">Box Height (cm):</label>
+                <input type="range" id="boxHeight" min="20" max="60" value="30">
+                <div class="range-display" id="boxHeightDisplay">30 cm</div>
+            </div>
+            
+            <div class="control-group">
+                <label for="colorMode">Visualization Mode:</label>
+                <select id="colorMode">
+                    <option value="layer">By Layer</option>
+                    <option value="fruit_natural">Natural Fruit Color</option>
+                    <option value="density">By Local Density</option>
+                    <option value="position">By Position</option>
+                    <option value="contact_points">Contact Points</option>
+                </select>
+            </div>
+            
+            <button id="generateBtn">🍊 Pack Products</button>
+            <button id="viewBtn">📦 Toggle Box View</button>
+        </div>
+        
+        <div id="stats">
+            <h3 style="margin-top: 0; color: #ffa500;">📊 Packing Statistics</h3>
+            <div class="stat-row">
+                <span class="stat-label">Total Products:</span>
+                <span class="stat-value" id="statFruits">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Layers:</span>
+                <span class="stat-value" id="statLayers">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Packing Efficiency:</span>
+                <span class="stat-value" id="statEfficiency">0%</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Volume Utilization:</span>
+                <span class="stat-value" id="statVolumeUtil">0%</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Products per Layer (avg):</span>
+                <span class="stat-value" id="statAvgPerLayer">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Wasted Space:</span>
+                <span class="stat-value" id="statWastedSpace">0%</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Est. Weight (kg):</span>
+                <span class="stat-value" id="statWeight">0</span>
+            </div>
+        </div>
+        
+        <div id="loading">📦 Optimizing product packing...</div>
+    </div>
+
+    <script>
+        class FruitPackingVisualizer {
+            constructor() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                this.fruits = [];
+                this.box = null;
+                this.showBox = true;
+                this.layers = [];
+                
+                this.setupRenderer();
+                this.setupCamera();
+                this.setupLights();
+                this.setupControls();
+                this.bindEvents();
+                this.updateAlgorithmDescription();
+                this.updateProductType();
+                
+                this.generatePacking();
+            }
+            
+            setupRenderer() {
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setClearColor(0x000000, 0);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                document.getElementById('container').appendChild(this.renderer.domElement);
+            }
+            
+            setupCamera() {
+                this.camera.position.set(80, 60, 80);
+                this.camera.lookAt(0, 15, 0);
+            }
+            
+            setupLights() {
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+                this.scene.add(ambientLight);
+                
+                const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                mainLight.position.set(50, 80, 50);
+                mainLight.castShadow = true;
+                mainLight.shadow.mapSize.width = 2048;
+                mainLight.shadow.mapSize.height = 2048;
+                mainLight.shadow.camera.near = 0.1;
+                mainLight.shadow.camera.far = 200;
+                mainLight.shadow.camera.left = -50;
+                mainLight.shadow.camera.right = 50;
+                mainLight.shadow.camera.top = 50;
+                mainLight.shadow.camera.bottom = -50;
+                this.scene.add(mainLight);
+                
+                const fillLight = new THREE.DirectionalLight(0xffa500, 0.3);
+                fillLight.position.set(-30, 40, -30);
+                this.scene.add(fillLight);
+                
+                const topLight = new THREE.PointLight(0xffffff, 0.5, 100);
+                topLight.position.set(0, 60, 0);
+                this.scene.add(topLight);
+            }
+            
+            setupControls() {
+                let mouseDown = false;
+                let mouseX = 0;
+                let mouseY = 0;
+                let cameraAngleX = Math.PI / 6;
+                let cameraAngleY = Math.PI / 4;
+                let cameraDistance = 120;
+                
+                this.renderer.domElement.addEventListener('mousedown', (e) => {
+                    mouseDown = true;
+                    mouseX = e.clientX;
+                    mouseY = e.clientY;
+                });
+                
+                this.renderer.domElement.addEventListener('mousemove', (e) => {
+                    if (!mouseDown) return;
+                    
+                    const deltaX = e.clientX - mouseX;
+                    const deltaY = e.clientY - mouseY;
+                    
+                    cameraAngleY += deltaX * 0.01;
+                    cameraAngleX += deltaY * 0.01;
+                    cameraAngleX = Math.max(-Math.PI/2, Math.min(Math.PI/2, cameraAngleX));
+                    
+                    this.updateCameraPosition(cameraAngleX, cameraAngleY, cameraDistance);
+                    
+                    mouseX = e.clientX;
+                    mouseY = e.clientY;
+                });
+                
+                this.renderer.domElement.addEventListener('mouseup', () => {
+                    mouseDown = false;
+                });
+                
+                this.renderer.domElement.addEventListener('wheel', (e) => {
+                    cameraDistance += e.deltaY * 0.1;
+                    cameraDistance = Math.max(30, Math.min(200, cameraDistance));
+                    this.updateCameraPosition(cameraAngleX, cameraAngleY, cameraDistance);
+                });
+            }
+            
+            updateCameraPosition(angleX, angleY, distance) {
+                this.camera.position.x = distance * Math.cos(angleX) * Math.sin(angleY);
+                this.camera.position.y = distance * Math.sin(angleX);
+                this.camera.position.z = distance * Math.cos(angleX) * Math.cos(angleY);
+                this.camera.lookAt(0, 15, 0);
+            }
+            
+            bindEvents() {
+                document.getElementById('generateBtn').addEventListener('click', () => this.generatePacking());
+                document.getElementById('viewBtn').addEventListener('click', () => this.toggleBoxView());
+                
+                ['boxLength', 'boxWidth', 'boxHeight', 'sphereDiameter', 'ovalLength', 'ovalWidth', 'ovalHeight'].forEach(id => {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.addEventListener('input', () => {
+                            document.getElementById(id + 'Display').textContent = element.value + ' cm';
+                        });
+                    }
+                });
+                
+                document.getElementById('productType').addEventListener('change', () => {
+                    this.updateProductType();
+                });
+                
+                document.getElementById('algorithm').addEventListener('change', () => {
+                    this.updateAlgorithmDescription();
+                });
+                
+                window.addEventListener('resize', () => this.onWindowResize());
+            }
+            
+            updateAlgorithmDescription() {
+                const descriptions = {
+                    'layered_hexagonal': 'Industry standard for spherical fruits - optimal space utilization',
+                    'layered_square': 'Simple grid pattern, easy for manual packing',
+                    'pyramid_stacking': 'Triangular layers for spheres - maximum stability',
+                    'offset_layers': 'Alternating offset for better interlocking',
+                    'tight_hexagonal': 'Maximum density hexagonal for spheres',
+                    'brick_pattern': 'Staggered like bricks for good stability',
+                    'tetrahedral': 'Natural sphere packing arrangement',
+                    'corner_fill': 'Fill corners first, then work inward',
+                    'dense_random': 'Random placement with high density',
+                    'oval_nested': 'Ovals nest together in alternating orientations',
+                    'oval_aligned': 'All ovals aligned in same direction for easy access',
+                    'oval_egg_crate': 'Like egg cartons - ovals in protective depressions',
+                    'oval_honeycomb': 'Hexagonal pattern adapted for oval shapes'
+                };
+                
+                const algorithm = document.getElementById('algorithm').value;
+                document.getElementById('algorithmDesc').textContent = descriptions[algorithm];
+            }
+            
+            updateProductType() {
+                const productType = document.getElementById('productType').value;
+                const sphereCustomGroup = document.getElementById('sphereCustomGroup');
+                const ovalCustomGroup = document.getElementById('ovalCustomGroup');
+                const orientationGroup = document.getElementById('orientationGroup');
+                
+                sphereCustomGroup.style.display = 'none';
+                ovalCustomGroup.style.display = 'none';
+                orientationGroup.style.display = 'none';
+                
+                const ovalProducts = ['lemon', 'egg_large', 'egg_medium', 'avocado', 'kiwi', 'plum', 'custom_oval'];
+                if (ovalProducts.includes(productType)) {
+                    orientationGroup.style.display = 'block';
+                }
+                
+                if (productType === 'custom_sphere') {
+                    sphereCustomGroup.style.display = 'block';
+                } else if (productType === 'custom_oval') {
+                    ovalCustomGroup.style.display = 'block';
+                    orientationGroup.style.display = 'block';
+                }
+            }
+            
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+            
+            clearScene() {
+                this.fruits.forEach(fruit => {
+                    this.scene.remove(fruit);
+                    if (fruit.geometry) fruit.geometry.dispose();
+                    if (fruit.material) fruit.material.dispose();
+                });
+                this.fruits = [];
+                this.layers = [];
+                
+                if (this.box) {
+                    this.scene.remove(this.box);
+                }
+            }
+            
+            createBox(length, width, height) {
+                const group = new THREE.Group();
+                
+                const floorGeometry = new THREE.PlaneGeometry(length, width);
+                const floorMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0x8B4513, 
+                    side: THREE.DoubleSide 
+                });
+                const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+                floor.rotation.x = -Math.PI / 2;
+                floor.position.y = 0;
+                floor.receiveShadow = true;
+                group.add(floor);
+                
+                const boxGeometry = new THREE.BoxGeometry(length, height, width);
+                const edges = new THREE.EdgesGeometry(boxGeometry);
+                const lineMaterial = new THREE.LineBasicMaterial({ 
+                    color: 0x8B4513, 
+                    linewidth: 2 
+                });
+                const wireframe = new THREE.LineSegments(edges, lineMaterial);
+                wireframe.position.y = height / 2;
+                group.add(wireframe);
+                
+                const wallMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0x8B4513, 
+                    transparent: true, 
+                    opacity: 0.1 
+                });
+                const walls = new THREE.Mesh(boxGeometry, wallMaterial);
+                walls.position.y = height / 2;
+                group.add(walls);
+                
+                return group;
+            }
+            
+            async generatePacking() {
+                document.getElementById('loading').style.display = 'block';
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                this.clearScene();
+                
+                const algorithm = document.getElementById('algorithm').value;
+                const productType = document.getElementById('productType').value;
+                
+                const productInfo = this.getProductDimensions(productType);
+                const boxLength = parseFloat(document.getElementById('boxLength').value);
+                const boxWidth = parseFloat(document.getElementById('boxWidth').value);
+                const boxHeight = parseFloat(document.getElementById('boxHeight').value);
+                const colorMode = document.getElementById('colorMode').value;
+                
+                this.box = this.createBox(boxLength, boxWidth, boxHeight);
+                this.scene.add(this.box);
+                
+                let positions = [];
+                
+                if (productInfo.isSpherical) {
+                    switch (algorithm) {
+                        case 'layered_hexagonal':
+                            positions = this.generateLayeredHexagonal(productInfo.radius, boxLength, boxWidth, boxHeight);
+                            break;
+                        case 'layered_square':
+                            positions = this.generateLayeredSquare(productInfo.radius, boxLength, boxWidth, boxHeight);
+                            break;
+                        default:
+                            positions = this.generateLayeredHexagonal(productInfo.radius, boxLength, boxWidth, boxHeight);
+                    }
+                } else {
+                    switch (algorithm) {
+                        case 'oval_nested':
+                            positions = this.generateOvalNested(productInfo, boxLength, boxWidth, boxHeight);
+                            break;
+                        case 'oval_aligned':
+                            positions = this.generateOvalAligned(productInfo, boxLength, boxWidth, boxHeight);
+                            break;
+                        case 'oval_egg_crate':
+                            positions = this.generateOvalEggCrate(productInfo, boxLength, boxWidth, boxHeight);
+                            break;
+                        case 'oval_honeycomb':
+                            positions = this.generateOvalHoneycomb(productInfo, boxLength, boxWidth, boxHeight);
+                            break;
+                        default:
+                            positions = this.generateOvalAligned(productInfo, boxLength, boxWidth, boxHeight);
+                    }
+                }
+                
+                this.createProducts(positions, productInfo, colorMode, productType);
+                this.updateStatistics(positions, productInfo, boxLength, boxWidth, boxHeight, productType);
+                
+                document.getElementById('loading').style.display = 'none';
+            }
+            
+            getProductDimensions(productType) {
+                const productData = {
+                    'orange': { isSpherical: true, radius: 3.5, color: 0xFFA500, weight: 0.15 },
+                    'apple': { isSpherical: true, radius: 4, color: 0xFF6B6B, weight: 0.18 },
+                    'grapefruit': { isSpherical: true, radius: 6, color: 0xFFD700, weight: 0.4 },
+                    'lime': { isSpherical: true, radius: 2.5, color: 0x32CD32, weight: 0.06 },
+                    'lemon': { isSpherical: false, length: 6, width: 4, height: 4, color: 0xFFFF00, weight: 0.08 },
+                    'egg_large': { isSpherical: false, length: 6, width: 4.5, height: 4.5, color: 0xFFF8DC, weight: 0.06 },
+                    'egg_medium': { isSpherical: false, length: 5.5, width: 4, height: 4, color: 0xFFF8DC, weight: 0.05 },
+                    'avocado': { isSpherical: false, length: 9, width: 6, height: 6, color: 0x568203, weight: 0.2 },
+                    'kiwi': { isSpherical: false, length: 6, width: 4.5, height: 4.5, color: 0x8B4513, weight: 0.07 },
+                    'plum': { isSpherical: false, length: 5, width: 4, height: 4, color: 0x8B008B, weight: 0.065 }
+                };
+                
+                if (productType === 'custom_sphere') {
+                    const diameter = parseFloat(document.getElementById('sphereDiameter').value);
+                    return { isSpherical: true, radius: diameter / 2, color: 0xFFA500, weight: 0.15 };
+                } else if (productType === 'custom_oval') {
+                    return {
+                        isSpherical: false,
+                        length: parseFloat(document.getElementById('ovalLength').value),
+                        width: parseFloat(document.getElementById('ovalWidth').value),
+                        height: parseFloat(document.getElementById('ovalHeight').value),
+                        color: 0xFFA500,
+                        weight: 0.15
+                    };
+                }
+                
+                return productData[productType] || productData['orange'];
+            }
+            
+            generateLayeredHexagonal(radius, length, width, height) {
+                const positions = [];
+                this.layers = [];
+                
+                const spacing = radius * 2;
+                const hexSpacing = spacing * Math.sqrt(3) / 2;
+                const layerHeight = spacing;
+                
+                let layer = 0;
+                for (let y = radius; y + radius <= height; y += layerHeight) {
+                    const layerPositions = [];
+                    const isEvenLayer = layer % 2 === 0;
+                    
+                    for (let x = -length/2 + radius; x + radius <= length/2; x += hexSpacing) {
+                        for (let z = -width/2 + radius; z + radius <= width/2; z += spacing) {
+                            let posX = x;
+                            let posZ = z;
+                            
+                            if (Math.floor((z + width/2) / spacing) % 2 === 1) {
+                                posX += hexSpacing / 2;
+                            }
+                            
+                            if (!isEvenLayer) {
+                                posX += hexSpacing / 2;
+                                posZ += spacing / 2;
+                            }
+                            
+                            if (Math.abs(posX) <= length/2 - radius && Math.abs(posZ) <= width/2 - radius) {
+                                const pos = new THREE.Vector3(posX, y, posZ);
+                                pos.layer = layer;
+                                positions.push(pos);
+                                layerPositions.push(pos);
+                            }
+                        }
+                    }
+                    
+                    this.layers.push(layerPositions);
+                    layer++;
+                }
+                
+                return positions;
+            }
+            
+            generateLayeredSquare(radius, length, width, height) {
+                const positions = [];
+                this.layers = [];
+                
+                const spacing = radius * 2;
+                const layerHeight = spacing;
+                
+                let layer = 0;
+                for (let y = radius; y + radius <= height; y += layerHeight) {
+                    const layerPositions = [];
+                    
+                    for (let x = -length/2 + radius; x + radius <= length/2; x += spacing) {
+                        for (let z = -width/2 + radius; z + radius <= width/2; z += spacing) {
+                            const pos = new THREE.Vector3(x, y, z);
+                            pos.layer = layer;
+                            positions.push(pos);
+                            layerPositions.push(pos);
+                        }
+                    }
+                    
+                    this.layers.push(layerPositions);
+                    layer++;
+                }
+                
+                return positions;
+            }
+            
+            generateOvalNested(productInfo, length, width, height) {
+                const positions = [];
+                this.layers = [];
+                
+                const { length: pLength, width: pWidth, height: pHeight } = productInfo;
+                const allowRotation = document.getElementById('allowRotation') ? document.getElementById('allowRotation').value : 'all';
+                
+                const spacingX = pLength * 1.1;
+                const spacingZ = pWidth * 1.1;
+                const layerHeight = pHeight * 1.1;
+                
+                let layer = 0;
+                for (let y = pHeight / 2; y + pHeight / 2 <= height; y += layerHeight) {
+                    const layerPositions = [];
+                    const isEvenLayer = layer % 2 === 0;
+                    
+                    for (let x = -length/2 + pLength/2; x + pLength/2 <= length/2; x += spacingX) {
+                        for (let z = -width/2 + pWidth/2; z + pWidth/2 <= width/2; z += spacingZ) {
+                            let posX = x;
+                            let posZ = z;
+                            let rotation = { x: 0, y: 0, z: 0 };
+                            
+                            // Nest alternating layers and rows
+                            if (!isEvenLayer) {
+                                posX += spacingX / 2;
+                                posZ += spacingZ / 2;
+                                if (allowRotation === 'all') {
+                                    rotation.y = Math.PI / 2; // 90-degree rotation
+                                }
+                            }
+                            
+                            // Alternate every other product in the row for better nesting
+                            const rowIndex = Math.floor((z + width/2) / spacingZ);
+                            if (rowIndex % 2 === 1 && allowRotation !== 'vertical_only') {
+                                rotation.y += Math.PI / 4; // Additional 45-degree rotation
+                            }
+                            
+                            if (Math.abs(posX) <= length/2 - pLength/2 && Math.abs(posZ) <= width/2 - pWidth/2) {
+                                const pos = new THREE.Vector3(posX, y, posZ);
+                                pos.layer = layer;
+                                pos.rotation = rotation;
+                                pos.dimensions = { length: pLength, width: pWidth, height: pHeight };
+                                positions.push(pos);
+                                layerPositions.push(pos);
+                            }
+                        }
+                    }
+                    
+                    this.layers.push(layerPositions);
+                    layer++;
+                }
+                
+                return positions;
+            }
+            
+            generateOvalAligned(productInfo, length, width, height) {
+                const positions = [];
+                this.layers = [];
+                
+                const { length: pLength, width: pWidth, height: pHeight } = productInfo;
+                const allowRotation = document.getElementById('allowRotation') ? document.getElementById('allowRotation').value : 'natural';
+                
+                const spacingX = pLength * 1.05;
+                const spacingZ = pWidth * 1.05;
+                const layerHeight = pHeight * 1.05;
+                
+                let layer = 0;
+                for (let y = pHeight / 2; y + pHeight / 2 <= height; y += layerHeight) {
+                    const layerPositions = [];
+                    
+                    for (let x = -length/2 + pLength/2; x + pLength/2 <= length/2; x += spacingX) {
+                        for (let z = -width/2 + pWidth/2; z + pWidth/2 <= width/2; z += spacingZ) {
+                            let rotation = { x: 0, y: 0, z: 0 };
+                            
+                            // Set orientation based on allowRotation setting
+                            if (allowRotation === 'vertical_only') {
+                                rotation.z = Math.PI / 2; // Stand upright
+                            } else if (allowRotation === 'natural') {
+                                // Natural position (e.g., eggs pointed up slightly)
+                                rotation.x = Math.PI / 12; // 15-degree tilt
+                            }
+                            
+                            const pos = new THREE.Vector3(x, y, z);
+                            pos.layer = layer;
+                            pos.rotation = rotation;
+                            pos.dimensions = { length: pLength, width: pWidth, height: pHeight };
+                            positions.push(pos);
+                            layerPositions.push(pos);
+                        }
+                    }
+                    
+                    this.layers.push(layerPositions);
+                    layer++;
+                }
+                
+                return positions;
+            }
+            
+            generateOvalEggCrate(productInfo, length, width, height) {
+                const positions = [];
+                this.layers = [];
+                
+                const { length: pLength, width: pWidth, height: pHeight } = productInfo;
+                
+                // Create depressions like egg cartons
+                const crateSpacingX = pLength * 1.2;
+                const crateSpacingZ = pWidth * 1.2;
+                const layerHeight = pHeight * 1.3; // Extra space for crate structure
+                
+                let layer = 0;
+                for (let y = pHeight / 2; y + pHeight / 2 <= height; y += layerHeight) {
+                    const layerPositions = [];
+                    
+                    for (let x = -length/2 + pLength/2; x + pLength/2 <= length/2; x += crateSpacingX) {
+                        for (let z = -width/2 + pWidth/2; z + pWidth/2 <= width/2; z += crateSpacingZ) {
+                            let rotation = { x: 0, y: 0, z: 0 };
+                            
+                            // Slight upward tilt for stability (like real egg cartons)
+                            rotation.x = Math.PI / 24; // 7.5-degree tilt
+                            
+                            // Alternate orientations for better fit
+                            const rowIndex = Math.floor((z + width/2) / crateSpacingZ);
+                            if (rowIndex % 2 === 1) {
+                                rotation.y = Math.PI; // 180-degree turn
+                            }
+                            
+                            const pos = new THREE.Vector3(x, y, z);
+                            pos.layer = layer;
+                            pos.rotation = rotation;
+                            pos.dimensions = { length: pLength, width: pWidth, height: pHeight };
+                            positions.push(pos);
+                            layerPositions.push(pos);
+                        }
+                    }
+                    
+                    this.layers.push(layerPositions);
+                    layer++;
+                }
+                
+                return positions;
+            }
+            
+            generateOvalHoneycomb(productInfo, length, width, height) {
+                const positions = [];
+                this.layers = [];
+                
+                const { length: pLength, width: pWidth, height: pHeight } = productInfo;
+                const allowRotation = document.getElementById('allowRotation') ? document.getElementById('allowRotation').value : 'all';
+                
+                const spacingX = pLength * 0.9;
+                const spacingZ = pWidth * Math.sqrt(3) / 2;
+                const layerHeight = pHeight * 1.1;
+                
+                let layer = 0;
+                for (let y = pHeight / 2; y + pHeight / 2 <= height; y += layerHeight) {
+                    const layerPositions = [];
+                    
+                    for (let x = -length/2 + pLength/2; x + pLength/2 <= length/2; x += spacingX) {
+                        for (let z = -width/2 + pWidth/2; z + pWidth/2 <= width/2; z += spacingZ) {
+                            let posX = x;
+                            let posZ = z;
+                            let rotation = { x: 0, y: 0, z: 0 };
+                            
+                            // Hexagonal offset
+                            const rowIndex = Math.floor((z + width/2) / spacingZ);
+                            if (rowIndex % 2 === 1) {
+                                posX += spacingX / 2;
+                            }
+                            
+                            // Rotate products to fit hexagonal pattern better
+                            if (allowRotation === 'all') {
+                                const hexRotation = (rowIndex % 3) * Math.PI / 3; // 60-degree increments
+                                rotation.y = hexRotation;
+                            }
+                            
+                            // Layer offset for better interlocking
+                            if (layer % 2 === 1) {
+                                posX += spacingX / 3;
+                                posZ += spacingZ / 3;
+                                if (allowRotation === 'all') {
+                                    rotation.y += Math.PI / 6; // Additional 30-degree rotation
+                                }
+                            }
+                            
+                            if (Math.abs(posX) <= length/2 - pLength/2 && Math.abs(posZ) <= width/2 - pWidth/2) {
+                                const pos = new THREE.Vector3(posX, y, posZ);
+                                pos.layer = layer;
+                                pos.rotation = rotation;
+                                pos.dimensions = { length: pLength, width: pWidth, height: pHeight };
+                                positions.push(pos);
+                                layerPositions.push(pos);
+                            }
+                        }
+                    }
+                    
+                    this.layers.push(layerPositions);
+                    layer++;
+                }
+                
+                return positions;
+            }
+            
+            createProducts(positions, productInfo, colorMode, productType) {
+                const baseColor = productInfo.color;
+                
+                positions.forEach((position, index) => {
+                    let color;
+                    
+                    switch (colorMode) {
+                        case 'layer':
+                            const layerRatio = position.layer / (this.layers.length - 1 || 1);
+                            color = new THREE.Color().setHSL(0.1 + layerRatio * 0.6, 0.8, 0.6);
+                            break;
+                        case 'fruit_natural':
+                            const hsl = new THREE.Color(baseColor).getHSL({});
+                            color = new THREE.Color().setHSL(
+                                hsl.h + (Math.random() - 0.5) * 0.05,
+                                hsl.s + (Math.random() - 0.5) * 0.1,
+                                hsl.l + (Math.random() - 0.5) * 0.1
+                            );
+                            break;
+                        default:
+                            color = new THREE.Color(baseColor);
+                    }
+                    
+                    const material = new THREE.MeshLambertMaterial({ 
+                        color: color,
+                        transparent: false
+                    });
+                    
+                    let geometry;
+                    if (productInfo.isSpherical) {
+                        geometry = new THREE.SphereGeometry(productInfo.radius, 16, 12);
+                    } else {
+                        geometry = new THREE.SphereGeometry(1, 16, 12);
+                        geometry.scale(
+                            productInfo.length / 2,
+                            productInfo.height / 2,
+                            productInfo.width / 2
+                        );
+                    }
+                    
+                    const product = new THREE.Mesh(geometry, material);
+                    product.position.copy(position);
+                    
+                    if (position.rotation) {
+                        product.rotation.set(position.rotation.x, position.rotation.y, position.rotation.z);
+                    }
+                    
+                    product.castShadow = true;
+                    product.receiveShadow = true;
+                    
+                    const scaleVariation = 0.95 + Math.random() * 0.1;
+                    product.scale.multiplyScalar(scaleVariation);
+                    
+                    this.scene.add(product);
+                    this.fruits.push(product);
+                });
+            }
+            
+            updateStatistics(positions, productInfo, boxLength, boxWidth, boxHeight, productType) {
+                const productCount = positions.length;
+                const layerCount = this.layers.length;
+                
+                let productVolume;
+                if (productInfo.isSpherical) {
+                    productVolume = (4/3) * Math.PI * Math.pow(productInfo.radius, 3);
+                } else {
+                    productVolume = (4/3) * Math.PI * (productInfo.length/2) * (productInfo.width/2) * (productInfo.height/2);
+                }
+                
+                const totalProductVolume = productVolume * productCount;
+                const boxVolume = boxLength * boxWidth * boxHeight;
+                const volumeUtilization = (totalProductVolume / boxVolume) * 100;
+                
+                // Calculate theoretical maximum for different shapes and algorithms
+                const algorithm = document.getElementById('algorithm').value;
+                const theoreticalMax = {
+                    // Spherical algorithms
+                    'layered_hexagonal': 74,
+                    'layered_square': 52,
+                    'pyramid_stacking': 70,
+                    'offset_layers': 68,
+                    'tight_hexagonal': 74,
+                    'brick_pattern': 65,
+                    'tetrahedral': 74,
+                    'corner_fill': 55,
+                    'dense_random': 64,
+                    // Oval/ellipsoidal algorithms
+                    'oval_nested': 82,        // Ovals can nest better than spheres
+                    'oval_aligned': 75,       // Good efficiency when aligned
+                    'oval_egg_crate': 78,     // Egg crate pattern is quite efficient
+                    'oval_honeycomb': 85      // Best for oval shapes
+                };
+                
+                const efficiency = Math.min((volumeUtilization / (theoreticalMax[algorithm] || 74)) * 100, 100);
+                const wastedSpace = 100 - volumeUtilization;
+                const avgPerLayer = layerCount > 0 ? (productCount / layerCount).toFixed(1) : 0;
+                const estimatedWeight = (productCount * productInfo.weight).toFixed(1);
+                
+                document.getElementById('statFruits').textContent = productCount;
+                document.getElementById('statLayers').textContent = layerCount;
+                document.getElementById('statEfficiency').textContent = efficiency.toFixed(1) + '%';
+                document.getElementById('statVolumeUtil').textContent = volumeUtilization.toFixed(1) + '%';
+                document.getElementById('statAvgPerLayer').textContent = avgPerLayer;
+                document.getElementById('statWastedSpace').textContent = wastedSpace.toFixed(1) + '%';
+                document.getElementById('statWeight').textContent = estimatedWeight;
+            }
+            
+            toggleBoxView() {
+                this.showBox = !this.showBox;
+                if (this.box) {
+                    this.box.visible = this.showBox;
+                }
+                
+                const button = document.getElementById('viewBtn');
+                button.textContent = this.showBox ? '📦 Hide Box' : '📦 Show Box';
+            }
+            
+            render() {
+                this.renderer.render(this.scene, this.camera);
+                requestAnimationFrame(() => this.render());
+            }
+        }
+        
+        window.addEventListener('load', () => {
+            const visualizer = new FruitPackingVisualizer();
+            visualizer.render();
+        });
+    </script>
+</body>
+</html>

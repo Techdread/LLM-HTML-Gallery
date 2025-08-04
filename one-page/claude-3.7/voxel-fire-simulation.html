@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voxel Fire Spread Simulation</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      display: block;
+    }
+    .controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      border-radius: 5px;
+      color: white;
+    }
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 8px 16px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 14px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .instructions {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      border-radius: 5px;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <button id="reset">Reset Simulation</button>
+    <button id="random-fire">Random Fire</button>
+    <div>
+      <label for="spread-probability">Spread Probability: </label>
+      <input type="range" id="spread-probability" min="0" max="100" step="1" value="30">
+      <span id="spread-value">30%</span>
+    </div>
+    <div>
+      <label for="fuel-amount">Fuel Amount: </label>
+      <input type="range" id="fuel-amount" min="10" max="100" step="5" value="50">
+      <span id="fuel-value">50</span>
+    </div>
+  </div>
+  
+  <div class="instructions">
+    <p>Click on a voxel to start a fire | Drag to rotate | Scroll to zoom</p>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+  <script>
+    // Constants
+    const GRID_SIZE = 10;
+    const VOXEL_SIZE = 1;
+    const GAP = 0.05;
+    
+    // Simulation configuration
+    let config = {
+      spreadProbability: 0.3,
+      fuelAmount: 50
+    };
+
+    // Scene setup
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111122);
+
+    // Camera setup
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(GRID_SIZE * 1.5, GRID_SIZE * 1.5, GRID_SIZE * 1.5);
+    camera.lookAt(GRID_SIZE/2, GRID_SIZE/2, GRID_SIZE/2);
+
+    // Renderer setup
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Orbit Controls
+    const OrbitControls = function(object, domElement) {
+      this.object = object;
+      this.domElement = domElement;
+      
+      // Variables
+      let rotateStart = new THREE.Vector2();
+      let rotateEnd = new THREE.Vector2();
+      let rotateDelta = new THREE.Vector2();
+      
+      let isDragging = false;
+      let rotateSpeed = 1.0;
+      
+      // Methods
+      this.update = function() {};
+      
+      // Event handlers
+      const onMouseDown = (event) => {
+        event.preventDefault();
+        
+        rotateStart.set(event.clientX, event.clientY);
+        isDragging = true;
+      };
+      
+      const onMouseMove = (event) => {
+        if (!isDragging) return;
+        
+        rotateEnd.set(event.clientX, event.clientY);
+        rotateDelta.subVectors(rotateEnd, rotateStart);
+        
+        // Rotate based on mouse movement
+        const targetPosition = new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/2, GRID_SIZE/2);
+        const radius = camera.position.distanceTo(targetPosition);
+        
+        // Rotate around target
+        let theta = -rotateDelta.x * 0.002 * rotateSpeed;
+        let phi = rotateDelta.y * 0.002 * rotateSpeed;
+        
+        const position = camera.position.clone().sub(targetPosition);
+        
+        // Convert to spherical coordinates
+        let spherical = new THREE.Spherical().setFromVector3(position);
+        
+        // Apply rotation
+        spherical.theta += theta;
+        spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi + phi));
+        
+        // Convert back to Cartesian
+        position.setFromSpherical(spherical);
+        camera.position.copy(position.add(targetPosition));
+        camera.lookAt(targetPosition);
+        
+        rotateStart.copy(rotateEnd);
+      };
+      
+      const onMouseUp = () => {
+        isDragging = false;
+      };
+      
+      const onMouseWheel = (event) => {
+        const targetPosition = new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/2, GRID_SIZE/2);
+        const direction = camera.position.clone().sub(targetPosition).normalize();
+        const distance = camera.position.distanceTo(targetPosition);
+        
+        // Zoom in or out
+        const delta = event.deltaY * 0.01;
+        const newDistance = Math.max(GRID_SIZE * 0.8, Math.min(GRID_SIZE * 3, distance + delta));
+        
+        camera.position.copy(targetPosition.clone().add(direction.multiplyScalar(newDistance)));
+      };
+      
+      // Event listeners
+      domElement.addEventListener('mousedown', onMouseDown, false);
+      domElement.addEventListener('mousemove', onMouseMove, false);
+      domElement.addEventListener('mouseup', onMouseUp, false);
+      domElement.addEventListener('wheel', onMouseWheel, false);
+    };
+    
+    const controls = new OrbitControls(camera, renderer.domElement);
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0xcccccc, 0.6);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    directionalLight.position.set(GRID_SIZE * 2, GRID_SIZE * 3, GRID_SIZE * 1);
+    scene.add(directionalLight);
+
+    // Materials
+    const flammableMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Wood brown
+    const burningMaterials = [
+      new THREE.MeshLambertMaterial({ color: 0xFF4500 }), // OrangeRed
+      new THREE.MeshLambertMaterial({ color: 0xFF8C00 }), // DarkOrange
+      new THREE.MeshLambertMaterial({ color: 0xFFD700 })  // Gold
+    ];
+    const burntMaterial = new THREE.MeshLambertMaterial({ color: 0x2F2F2F }); // Dark grey
+
+    // Voxel geometry
+    const voxelGeometry = new THREE.BoxGeometry(VOXEL_SIZE - GAP, VOXEL_SIZE - GAP, VOXEL_SIZE - GAP);
+
+    // Grid setup
+    let voxelGrid = [];
+    
+    // Initialize the grid
+    function initializeGrid() {
+      // Remove existing voxels from the scene
+      if (voxelGrid.length > 0) {
+        for (let x = 0; x < GRID_SIZE; x++) {
+          for (let y = 0; y < GRID_SIZE; y++) {
+            for (let z = 0; z < GRID_SIZE; z++) {
+              if (voxelGrid[x][y][z].mesh) {
+                scene.remove(voxelGrid[x][y][z].mesh);
+              }
+            }
+          }
+        }
+      }
+      
+      voxelGrid = Array(GRID_SIZE).fill().map(() => 
+        Array(GRID_SIZE).fill().map(() => 
+          Array(GRID_SIZE).fill().map(() => ({
+            mesh: null,
+            isFlammable: true,
+            isOnFire: false,
+            fuel: config.fuelAmount,
+            burnTimer: 0
+          }))
+        )
+      );
+      
+      // Create voxels
+      for (let x = 0; x < GRID_SIZE; x++) {
+        for (let y = 0; y < GRID_SIZE; y++) {
+          for (let z = 0; z < GRID_SIZE; z++) {
+            const voxel = new THREE.Mesh(voxelGeometry, flammableMaterial);
+            voxel.position.set(x + VOXEL_SIZE/2, y + VOXEL_SIZE/2, z + VOXEL_SIZE/2);
+            voxel.userData = { x, y, z }; // Store position for raycasting
+            scene.add(voxel);
+            
+            voxelGrid[x][y][z].mesh = voxel;
+          }
+        }
+      }
+    }
+
+    // Raycasting for interaction
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    function onMouseClick(event) {
+      // Convert mouse position to normalized device coordinates
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+      
+      // Update raycaster
+      raycaster.setFromCamera(mouse, camera);
+      
+      // Get intersections
+      const intersects = raycaster.intersectObjects(scene.children);
+      
+      if (intersects.length > 0) {
+        const voxel = intersects[0].object;
+        
+        // Check if it's a voxel (has userData with coordinates)
+        if (voxel.userData && typeof voxel.userData.x !== 'undefined') {
+          const { x, y, z } = voxel.userData;
+          
+          if (voxelGrid[x][y][z].isFlammable && !voxelGrid[x][y][z].isOnFire) {
+            igniteVoxel(x, y, z);
+          }
+        }
+      }
+    }
+
+    // Ignite a voxel
+    function igniteVoxel(x, y, z) {
+      if (!voxelGrid[x][y][z].isFlammable || voxelGrid[x][y][z].isOnFire) return;
+      
+      voxelGrid[x][y][z].isOnFire = true;
+      voxelGrid[x][y][z].burnTimer = 0;
+      
+      // Assign a random burning material
+      const randomBurningMaterial = burningMaterials[Math.floor(Math.random() * burningMaterials.length)];
+      voxelGrid[x][y][z].mesh.material = randomBurningMaterial;
+    }
+
+    // Start fire at a random location
+    function startRandomFire() {
+      const x = Math.floor(Math.random() * GRID_SIZE);
+      const y = Math.floor(Math.random() * GRID_SIZE);
+      const z = Math.floor(Math.random() * GRID_SIZE);
+      
+      igniteVoxel(x, y, z);
+    }
+
+    // Update the simulation
+    function updateSimulation() {
+      // Create a list of voxels to ignite in the next step to avoid immediate spread
+      const toIgnite = [];
+      
+      // Process all voxels
+      for (let x = 0; x < GRID_SIZE; x++) {
+        for (let y = 0; y < GRID_SIZE; y++) {
+          for (let z = 0; z < GRID_SIZE; z++) {
+            const voxel = voxelGrid[x][y][z];
+            
+            if (voxel.isOnFire) {
+              // Increment burn timer
+              voxel.burnTimer++;
+              
+              // Animate fire color
+              if (voxel.burnTimer % 5 === 0) {
+                const randomBurningMaterial = burningMaterials[Math.floor(Math.random() * burningMaterials.length)];
+                voxel.mesh.material = randomBurningMaterial;
+              }
+              
+              // Consume fuel
+              voxel.fuel--;
+              
+              // Check if the fire burns out
+              if (voxel.fuel <= 0) {
+                voxel.isOnFire = false;
+                voxel.isFlammable = false;
+                voxel.mesh.material = burntMaterial;
+              } else {
+                // Try to spread fire to neighbors
+                const neighbors = getNeighbors(x, y, z);
+                
+                neighbors.forEach(neighbor => {
+                  const [nx, ny, nz] = neighbor;
+                  
+                  if (voxelGrid[nx][ny][nz].isFlammable && !voxelGrid[nx][ny][nz].isOnFire) {
+                    // Apply spread probability
+                    if (Math.random() < config.spreadProbability) {
+                      toIgnite.push([nx, ny, nz]);
+                    }
+                  }
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      // Ignite new voxels
+      toIgnite.forEach(coords => {
+        const [x, y, z] = coords;
+        igniteVoxel(x, y, z);
+      });
+    }
+
+    // Get valid neighbors
+    function getNeighbors(x, y, z) {
+      const neighbors = [];
+      
+      // Check all 6 faces (not diagonals)
+      const directions = [
+        [1, 0, 0], [-1, 0, 0],
+        [0, 1, 0], [0, -1, 0],
+        [0, 0, 1], [0, 0, -1]
+      ];
+      
+      directions.forEach(dir => {
+        const nx = x + dir[0];
+        const ny = y + dir[1];
+        const nz = z + dir[2];
+        
+        // Check if neighbor is within grid bounds
+        if (nx >= 0 && nx < GRID_SIZE && 
+            ny >= 0 && ny < GRID_SIZE && 
+            nz >= 0 && nz < GRID_SIZE) {
+          neighbors.push([nx, ny, nz]);
+        }
+      });
+      
+      return neighbors;
+    }
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      updateSimulation();
+      renderer.render(scene, camera);
+    }
+
+    // Handle window resize
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // UI Controls
+    document.getElementById('reset').addEventListener('click', () => {
+      initializeGrid();
+    });
+
+    document.getElementById('random-fire').addEventListener('click', () => {
+      startRandomFire();
+    });
+
+    document.getElementById('spread-probability').addEventListener('input', (e) => {
+      config.spreadProbability = parseInt(e.target.value) / 100;
+      document.getElementById('spread-value').textContent = e.target.value + '%';
+    });
+
+    document.getElementById('fuel-amount').addEventListener('input', (e) => {
+      config.fuelAmount = parseInt(e.target.value);
+      document.getElementById('fuel-value').textContent = e.target.value;
+    });
+
+    // Event listeners
+    window.addEventListener('resize', onWindowResize, false);
+    renderer.domElement.addEventListener('click', onMouseClick, false);
+
+    // Initialize and start the simulation
+    initializeGrid();
+    animate();
+  </script>
+</body>
+</html>

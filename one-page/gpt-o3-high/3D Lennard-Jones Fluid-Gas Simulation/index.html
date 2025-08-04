@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>3D Lennard-Jones Fluid/Gas Simulation</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Import Map for ES Modules -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.skypack.dev/three@0.128.0",
+        "three/addons/": "https://cdn.skypack.dev/three@0.128.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="container">
+    <!-- Container for the ThreeJS canvas -->
+    <div id="simulation-container"></div>
+    
+    <!-- Control panel for simulation parameters and display -->
+    <div id="controls">
+      <h2>Simulation Controls</h2>
+      <div>
+         <label for="numParticles">Number of Particles:</label>
+         <input type="number" id="numParticles" min="1" max="1000" value="50">
+      </div>
+      <div>
+         <label for="temperature">Initial Temperature:</label>
+         <input type="number" id="temperature" step="0.1" value="1">
+      </div>
+      <div>
+         <label for="boxSize">Box Size:</label>
+         <input type="number" id="boxSize" step="1" value="50">
+      </div>
+      <div>
+         <label for="epsilon">Lennard-Jones ε:</label>
+         <input type="number" id="epsilon" step="0.1" value="1">
+      </div>
+      <div>
+         <label for="sigma">Lennard-Jones σ:</label>
+         <input type="number" id="sigma" step="0.1" value="1">
+      </div>
+      <div>
+         <label for="timeStep">Time Step (dt):</label>
+         <input type="number" id="timeStep" step="0.001" value="0.01">
+      </div>
+      <div>
+         <button id="startPauseBtn">Start Simulation</button>
+         <button id="resetBtn">Reset Simulation</button>
+      </div>
+      <h2>Simulation Data</h2>
+      <div>
+         <p>Temperature: <span id="displayTemperature">0</span></p>
+         <p>Potential Energy: <span id="displayPotentialEnergy">0</span></p>
+         <p>Kinetic Energy: <span id="displayKineticEnergy">0</span></p>
+         <p>Elapsed Time: <span id="displayTime">0</span> s</p>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Include our simulation script -->
+  <script type="module" src="simulation.js"></script>
+</body>
+</html>

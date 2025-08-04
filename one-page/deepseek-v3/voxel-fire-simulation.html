@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voxel Fire Spread Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        button {
+            padding: 5px 10px;
+            margin: 5px 0;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h2>Voxel Fire Spread</h2>
+        <p>Click on flammable voxels (brown) to start the fire</p>
+        <button id="resetBtn">Reset Simulation</button>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x333333);
+        document.body.appendChild(renderer.domElement);
+
+        // Camera controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        camera.position.set(15, 15, 15);
+        controls.update();
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(1, 1, 1);
+        scene.add(directionalLight);
+
+        // Grid parameters
+        const gridSize = 10;
+        const voxelSize = 1;
+        const voxelSpacing = 0.1;
+        const totalSize = gridSize * (voxelSize + voxelSpacing) - voxelSpacing;
+
+        // Voxel materials
+        const flammableMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 }); // Brown (wood)
+        const burningMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0xFF4500, 
+            emissive: 0xFF4500,
+            emissiveIntensity: 0.5
+        }); // Orange-red
+        const burntMaterial = new THREE.MeshPhongMaterial({ color: 0x222222 }); // Dark gray
+
+        // Voxel geometry
+        const voxelGeometry = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
+
+        // Voxel grid
+        const voxels = [];
+        const voxelMeshes = [];
+
+        // Initialize voxel grid
+        function initVoxels() {
+            // Clear existing voxels
+            voxelMeshes.forEach(mesh => scene.remove(mesh));
+            voxels.length = 0;
+            voxelMeshes.length = 0;
+
+            // Create new voxels
+            for (let x = 0; x < gridSize; x++) {
+                voxels[x] = [];
+                voxelMeshes[x] = [];
+                for (let y = 0; y < gridSize; y++) {
+                    voxels[x][y] = [];
+                    voxelMeshes[x][y] = [];
+                    for (let z = 0; z < gridSize; z++) {
+                        // Randomly determine if voxel is flammable (70% chance)
+                        const isFlammable = Math.random() < 0.7;
+                        
+                        // Create voxel data
+                        voxels[x][y][z] = {
+                            isFlammable: isFlammable,
+                            isOnFire: false,
+                            fuel: isFlammable ? Math.random() * 50 + 50 : 0, // Random fuel between 50-100
+                            neighbors: []
+                        };
+
+                        // Create voxel mesh
+                        const material = isFlammable ? flammableMaterial : burntMaterial;
+                        const voxelMesh = new THREE.Mesh(voxelGeometry, material);
+                        
+                        // Position the voxel
+                        const offset = -(totalSize / 2) + (voxelSize / 2);
+                        voxelMesh.position.set(
+                            offset + x * (voxelSize + voxelSpacing),
+                            offset + y * (voxelSize + voxelSpacing),
+                            offset + z * (voxelSize + voxelSpacing)
+                        );
+                        
+                        scene.add(voxelMesh);
+                        voxelMeshes[x][y][z] = voxelMesh;
+                    }
+                }
+            }
+
+            // Set up neighbor references
+            for (let x = 0; x < gridSize; x++) {
+                for (let y = 0; y < gridSize; y++) {
+                    for (let z = 0; z < gridSize; z++) {
+                        const neighbors = [];
+                        if (x > 0) neighbors.push(voxels[x-1][y][z]);
+                        if (x < gridSize-1) neighbors.push(voxels[x+1][y][z]);
+                        if (y > 0) neighbors.push(voxels[x][y-1][z]);
+                        if (y < gridSize-1) neighbors.push(voxels[x][y+1][z]);
+                        if (z > 0) neighbors.push(voxels[x][y][z-1]);
+                        if (z < gridSize-1) neighbors.push(voxels[x][y][z+1]);
+                        voxels[x][y][z].neighbors = neighbors;
+                    }
+                }
+            }
+        }
+
+        // Raycaster for interaction
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function onMouseClick(event) {
+            // Calculate mouse position in normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Update the raycaster
+            raycaster.setFromCamera(mouse, camera);
+
+            // Find intersected voxels
+            const intersects = raycaster.intersectObjects(voxelMeshes.flat(2));
+
+            if (intersects.length > 0) {
+                const clickedVoxelMesh = intersects[0].object;
+                
+                // Find the voxel data for this mesh
+                for (let x = 0; x < gridSize; x++) {
+                    for (let y = 0; y < gridSize; y++) {
+                        for (let z = 0; z < gridSize; z++) {
+                            if (voxelMeshes[x][y][z] === clickedVoxelMesh) {
+                                const voxel = voxels[x][y][z];
+                                if (voxel.isFlammable && !voxel.isOnFire) {
+                                    // Ignite this voxel
+                                    voxel.isOnFire = true;
+                                    clickedVoxelMesh.material = burningMaterial;
+                                }
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Smoke particles
+        let smokeParticles = null;
+        function createSmokeParticles() {
+            const particleCount = 1000;
+            const particles = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const scales = new Float32Array(particleCount);
+
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 10;
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 10;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
+                scales[i] = Math.random() * 0.5 + 0.1;
+            }
+
+            particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particles.setAttribute('scale', new THREE.BufferAttribute(scales, 1));
+
+            const particleMaterial = new THREE.PointsMaterial({
+                color: 0x555555,
+                size: 0.5,
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending
+            });
+
+            smokeParticles = new THREE.Points(particles, particleMaterial);
+            smokeParticles.visible = false;
+            scene.add(smokeParticles);
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Update fire spread
+            let burningVoxels = 0;
+            for (let x = 0; x < gridSize; x++) {
+                for (let y = 0; y < gridSize; y++) {
+                    for (let z = 0; z < gridSize; z++) {
+                        const voxel = voxels[x][y][z];
+                        const mesh = voxelMeshes[x][y][z];
+
+                        if (voxel.isOnFire) {
+                            burningVoxels++;
+                            voxel.fuel -= 0.5; // Fuel consumption rate
+
+                            // Random flickering effect
+                            mesh.material.emissiveIntensity = 0.3 + Math.random() * 0.7;
+                            
+                            if (voxel.fuel <= 0) {
+                                // Voxel has burned out
+                                voxel.isOnFire = false;
+                                voxel.isFlammable = false;
+                                mesh.material = burntMaterial;
+                            } else {
+                                // Try to spread fire to neighbors
+                                voxel.neighbors.forEach(neighbor => {
+                                    if (neighbor.isFlammable && !neighbor.isOnFire) {
+                                        // 10% chance per frame to spread to each neighbor
+                                        if (Math.random() < 0.1) {
+                                            neighbor.isOnFire = true;
+                                            // Find and update the neighbor's mesh
+                                            for (let nx = 0; nx < gridSize; nx++) {
+                                                for (let ny = 0; ny < gridSize; ny++) {
+                                                    for (let nz = 0; nz < gridSize; nz++) {
+                                                        if (voxels[nx][ny][nz] === neighbor) {
+                                                            voxelMeshes[nx][ny][nz].material = burningMaterial;
+                                                            return;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update smoke particles
+            if (smokeParticles) {
+                smokeParticles.visible = burningVoxels > 0;
+                if (smokeParticles.visible) {
+                    // Animate smoke particles
+                    const positions = smokeParticles.geometry.attributes.position.array;
+                    for (let i = 0; i < positions.length; i += 3) {
+                        positions[i + 1] += 0.02; // Particles rise
+                        if (positions[i + 1] > 5) {
+                            // Reset particle to bottom
+                            positions[i] = (Math.random() - 0.5) * 10;
+                            positions[i + 1] = -5;
+                            positions[i + 2] = (Math.random() - 0.5) * 10;
+                        }
+                    }
+                    smokeParticles.geometry.attributes.position.needsUpdate = true;
+                }
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Reset button
+        document.getElementById('resetBtn').addEventListener('click', initVoxels);
+
+        // Event listeners
+        window.addEventListener('click', onMouseClick, false);
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Initialize
+        initVoxels();
+        createSmokeParticles();
+        animate();
+    </script>
+</body>
+</html>

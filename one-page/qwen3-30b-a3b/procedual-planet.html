@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Procedural Planet - Three.js</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        button {
+            margin: 0 5px;
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">
+        Procedural Planet<br />
+        Rotation: <span id="speed">1.0</span>×<br />
+        Use mouse to rotate, scroll to zoom
+    </div>
+    <div id="controls">
+        <button id="pause">Pause</button>
+        <button id="speedUp">Speed Up</button>
+        <button id="slowDown">Slow Down</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.0/examples/js/libs/simplex-noise.js"></script>
+    <script>
+        // === GLOBALS ===
+        let scene, camera, renderer, planet, atmosphere, clouds, ocean, clock;
+        let isPaused = false;
+        let rotationSpeed = 1.0;
+        let mouseX = 0, mouseY = 0;
+        let targetRotationX = 0, targetRotationY = 0;
+        const targetRotationSpeed = 0.01;
+
+        // === INITIALIZATION ===
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 3.5;
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Clock for animation
+            clock = new THREE.Clock();
+
+            // Lighting
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+            sunLight.position.set(10, 10, 10);
+            scene.add(sunLight);
+
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambientLight);
+
+            // === Planet (Sphere with terrain) ===
+            const radius = 1.0;
+            const geometry = new THREE.SphereGeometry(radius, 64, 64);
+
+            // Add noise to vertices
+            const positions = geometry.attributes.position.array;
+            const simplex = new SimplexNoise();
+
+            const heightScale = 0.1;
+
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = positions[i];
+                const y = positions[i + 1];
+                const z = positions[i + 2];
+
+                const lat = Math.asin(y / radius);
+                const lon = Math.atan2(z, x);
+
+                // Noise at multiple octaves
+                let noise = 0.0;
+                let amplitude = 1.0;
+                let frequency = 1.0;
+                for (let o = 0; o < 4; o++) {
+                    noise += simplex.noise3D(x * frequency, y * frequency, z * frequency) * amplitude;
+                    amplitude *= 0.5;
+                    frequency *= 2;
+                }
+
+                // Scale noise to height
+                const offset = noise * heightScale;
+                positions[i] += x * offset;
+                positions[i + 1] += y * offset;
+                positions[i + 2] += z * offset;
+            }
+
+            geometry.attributes.position.needsUpdate = true;
+            geometry.computeVertexNormals();
+
+            // Biome-based material
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x448822,
+                roughness: 0.8,
+                metalness: 0.2,
+                flatShading: false
+            });
+
+            planet = new THREE.Mesh(geometry, material);
+            scene.add(planet);
+
+            // === Ocean ===
+            const oceanGeometry = new THREE.SphereGeometry(radius - 0.005, 64, 64);
+            const oceanMaterial = new THREE.MeshStandardMaterial({
+                color: 0x004499,
+                transparent: true,
+                opacity: 0.8,
+                roughness: 0.5,
+                metalness: 0.1,
+                side: THREE.DoubleSide
+            });
+            ocean = new THREE.Mesh(oceanGeometry, oceanMaterial);
+            scene.add(ocean);
+
+            // === Atmosphere ===
+            const atmosphereGeometry = new THREE.SphereGeometry(radius + 0.05, 64, 64);
+            const atmosphereMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    color: { value: new THREE.Color(0x004499) },
+                    radius: { value: radius + 0.05 },
+                    glow: { value: 0.5 },
+                    time: { value: 0 }
+                },
+                vertexShader: `
+          varying vec3 vNormal;
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+                fragmentShader: `
+          uniform vec3 color;
+          uniform float radius;
+          uniform float time;
+          varying vec3 vNormal;
+
+          void main() {
+            float intensity = pow(0.9 - dot(vNormal, vec3(0, 0, 1)), 2.0);
+            float atmosphere = 1.0 - smoothstep(0.0, 1.0, length(vNormal));
+            float fade = 1.0 - pow(1.0 - distance(gl_FragCoord.xy, vec2(0.5)), 0.5);
+            float glow = 0.5 + 0.5 * cos(time * 0.5 + 0.5);
+            float alpha = intensity * 0.8 + glow * 0.2;
+            gl_FragColor = vec4(color * 0.7, alpha);
+          }
+        `,
+                transparent: true,
+                depthWrite: false
+            });
+            const atmosphereMesh = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+            scene.add(atmosphereMesh);
+
+            // === Clouds ===
+            const cloudGeometry = new THREE.SphereGeometry(radius + 0.03, 64, 64);
+            const cloudMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    scale: { value: 2.0 },
+                    opacity: { value: 0.4 }
+                },
+                vertexShader: `
+          varying vec3 vNormal;
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+                fragmentShader: `
+          uniform float time;
+          uniform float scale;
+          uniform float opacity;
+          varying vec3 vNormal;
+
+          float noise(vec3 p) {
+            return fract(sin(dot(p, vec3(12.9898, 78.233, 45.169)))* 43758.5453);
+          }
+
+          void main() {
+            vec3 p = vec3(vNormal * 1.2);
+            float noise = noise(p + time * 0.1) * 0.5 + 0.5;
+            float cloud = smoothstep(0.4, 1.0, noise);
+            cloud *= smoothstep(0.0, 0.5, length(vNormal));
+            gl_FragColor = vec4(1.0, 1.0, 1.0, cloud * opacity);
+          }
+        `,
+                transparent: true,
+                blending: THREE.AdditiveBlending
+            });
+
+            clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
+            scene.add(clouds);
+
+            // === BIOME SYSTEM (Apply textures) ===
+            const textureLoader = new THREE.TextureLoader();
+
+            // Load base textures (you can replace with real textures)
+            const textures = {
+                ocean: textureLoader.load('https://threejs.org/examples/textures/planets/earth_ocean_2048.jpg'),
+                desert: textureLoader.load('https://threejs.org/examples/textures/planets/earth_desert_2048.jpg'),
+                forest: textureLoader.load('https://threejs.org/examples/textures/planets/earth_forest_2048.jpg'),
+                tundra: textureLoader.load('https://threejs.org/examples/textures/planets/earth_tundra_2048.jpg')
+            };
+
+            // Set up blend map and biome mapping
+            const blendMap = new THREE.CanvasTexture(createBlendMap());
+            blendMap.wrapS = THREE.RepeatWrapping;
+            blendMap.wrapT = THREE.RepeatWrapping;
+
+            const biomeMaterial = new THREE.MeshStandardMaterial({
+                map: textures.ocean,
+                normalMap: textureLoader.load('https://threejs.org/examples/textures/planets/earth_normal_2048.jpg'),
+                bumpMap: textureLoader.load('https://threejs.org/examples/textures/planets/earth_bump_2048.jpg'),
+                bumpScale: 0.02,
+                roughnessMap: textureLoader.load('https://threejs.org/examples/textures/planets/earth_roughness_2048.jpg'),
+                metalness: 0.0
+            });
+
+            // Update material based on biome (via shader or dynamic map)
+            // We'll use a simple approach: update map based on height & lat
+            const biomeShader = new THREE.ShaderMaterial({
+                uniforms: {
+                    oceanMap: { value: textures.ocean },
+                    desertMap: { value: textures.desert },
+                    forestMap: { value: textures.forest },
+                    tundraMap: { value: textures.tundra },
+                    blendMap: { value: blendMap },
+                    time: { value: 0 }
+                },
+                vertexShader: `
+          varying vec3 vNormal;
+          varying vec2 vUv;
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+                fragmentShader: `
+          uniform sampler2D oceanMap;
+          uniform sampler2D desertMap;
+          uniform sampler2D forestMap;
+          uniform sampler2D tundraMap;
+          uniform sampler2D blendMap;
+          uniform float time;
+          varying vec3 vNormal;
+          varying vec2 vUv;
+
+          void main() {
+            float lat = 0.5 - vNormal.y * 0.5;
+            float height = (vNormal.y + 1.0) * 0.5;
+
+            vec4 blend = texture2D(blendMap, vUv);
+            vec4 color = texture2D(oceanMap, vUv) * blend.r;
+            color += texture2D(desertMap, vUv) * blend.g;
+            color += texture2D(forestMap, vUv) * blend.b;
+            color += texture2D(tundraMap, vUv) * blend.a;
+
+            gl_FragColor = color;
+          }
+        `,
+                side: THREE.DoubleSide
+            });
+
+            // Replace planet material
+            planet.material = biomeShader;
+
+            // === CAMERA CONTROLS ===
+            const controls = {
+                target: new THREE.Vector3(0, 0, 0),
+                distance: 3.5,
+                angleX: 0,
+                angleY: 0,
+                minDistance: 2.0,
+                maxDistance: 10.0
+            };
+
+            // Mouse events
+            document.addEventListener('mousemove', (e) => {
+                mouseX = (e.clientX - window.innerWidth / 2) / 100;
+                mouseY = (e.clientY - window.innerHeight / 2) / 100;
+            });
+
+            document.addEventListener('wheel', (e) => {
+                controls.distance *= 1.0 - e.deltaY * 0.001;
+                controls.distance = Math.max(controls.minDistance, Math.min(controls.maxDistance, controls.distance));
+            });
+
+            // Buttons
+            document.getElementById('pause').addEventListener('click', () => {
+                isPaused = !isPaused;
+                document.getElementById('pause').textContent = isPaused ? 'Resume' : 'Pause';
+            });
+
+            document.getElementById('speedUp').addEventListener('click', () => {
+                rotationSpeed *= 1.5;
+                document.getElementById('speed').textContent = rotationSpeed.toFixed(1);
+            });
+
+            document.getElementById('slowDown').addEventListener('click', () => {
+                rotationSpeed *= 0.7;
+                document.getElementById('speed').textContent = rotationSpeed.toFixed(1);
+            });
+
+            // Resize handler
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // Start animation loop
+            animate();
+        }
+
+        // === CREATE BLEND MAP ===
+        function createBlendMap() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+
+            for (let y = 0; y < canvas.height; y++) {
+                for (let x = 0; x < canvas.width; x++) {
+                    const lat = (y / canvas.height) * Math.PI - Math.PI / 2;
+                    const lon = (x / canvas.width) * 2 * Math.PI;
+
+                    const height = Math.sin(lat) * 0.5 + 0.5; // 0 = poles, 1 = equator
+                    const ocean = height < 0.3 ? 1.0 : 0.0;
+                    const desert = height > 0.4 && height < 0.6 ? 1.0 : 0.0;
+                    const forest = height > 0.5 && height < 0.8 ? 1.0 : 0.0;
+                    const tundra = height > 0.7 ? 1.0 : 0.0;
+
+                    const r = ocean;
+                    const g = desert;
+                    const b = forest;
+                    const a = tundra;
+
+                    const i = (y * canvas.width + x) * 4;
+                    imageData.data[i] = Math.floor(r * 255);
+                    imageData.data[i + 1] = Math.floor(g * 255);
+                    imageData.data[i + 2] = Math.floor(b * 255);
+                    imageData.data[i + 3] = Math.floor(a * 255);
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            return canvas;
+        }
+
+        // === ANIMATION LOOP ===
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            if (!isPaused) {
+                planet.rotation.y += rotationSpeed * delta;
+                clouds.rotation.y += rotationSpeed * 0.7 * delta;
+                atmosphere.material.uniforms.time.value = time;
+                clouds.material.uniforms.time.value = time;
+            }
+
+            // Smooth camera controls
+            targetRotationX += (mouseY - targetRotationX) * targetRotationSpeed;
+            targetRotationY += (mouseX - targetRotationY) * targetRotationSpeed;
+
+            camera.position.x = Math.sin(targetRotationY) * controls.distance;
+            camera.position.y = Math.sin(targetRotationX) * controls.distance;
+            camera.position.z = Math.cos(targetRotationY) * controls.distance;
+
+            camera.lookAt(controls.target);
+
+            // Update UI
+            document.getElementById('speed').textContent = rotationSpeed.toFixed(1);
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize
+        init();
+    </script>
+</body>
+
+</html>

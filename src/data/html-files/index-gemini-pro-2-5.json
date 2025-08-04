@@ -1,0 +1,15 @@
+{
+  "title": "Three.js Plane Deformation",
+  "htmlContent": "<!DOCTYPE html>\r\n<html lang=\"en\">\r\n\r\n<head>\r\n    <meta charset=\"UTF-8\">\r\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\r\n    <title>Three.js Plane Deformation</title>\r\n    <style>\r\n        body {\r\n            margin: 0;\r\n            overflow: hidden;\r\n            background-color: #8B732B;\r\n            /* Similar to video bg */\r\n        }\r\n\r\n        canvas {\r\n            display: block;\r\n        }\r\n\r\n        #info {\r\n            position: absolute;\r\n            top: 20px;\r\n            left: 50%;\r\n            transform: translateX(-50%);\r\n            color: white;\r\n            font-size: 48px;\r\n            font-family: Arial, sans-serif;\r\n            font-weight: bold;\r\n            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);\r\n            z-index: 100;\r\n        }\r\n\r\n        #controls {\r\n            position: absolute;\r\n            bottom: 20px;\r\n            left: 50%;\r\n            transform: translateX(-50%);\r\n            z-index: 100;\r\n        }\r\n\r\n        button {\r\n            padding: 10px 20px;\r\n            font-size: 16px;\r\n            margin: 5px;\r\n            cursor: pointer;\r\n        }\r\n    </style>\r\n</head>\r\n\r\n<body>\r\n    <div id=\"info\">1 FACE</div>\r\n    <div id=\"controls\">\r\n        <button id=\"nextButton\">Next & Drop</button>\r\n    </div>\r\n\r\n    <!-- Create dummy sound files or replace with actual paths -->\r\n    <audio id=\"sound1\" src=\"sounds/glass_light_tap.mp3\" preload=\"auto\"></audio>\r\n    <audio id=\"sound2\" src=\"sounds/glass_crack_short.mp3\" preload=\"auto\"></audio>\r\n    <audio id=\"sound3\" src=\"sounds/glass_shatter_medium.mp3\" preload=\"auto\"></audio>\r\n    <audio id=\"sound4\" src=\"sounds/glass_shatter_heavy.mp3\" preload=\"auto\"></audio>\r\n    <audio id=\"sound5\" src=\"sounds/glass_multiple_breaks.mp3\" preload=\"auto\"></audio>\r\n    <audio id=\"sound6\" src=\"sounds/soft_impact_squish1.mp3\" preload=\"auto\"></audio>\r\n    <audio id=\"sound7\" src=\"sounds/soft_impact_squish2.mp3\" preload=\"auto\"></audio>\r\n\r\n    <script type=\"importmap\">\r\n        {\r\n            \"imports\": {\r\n                \"three\": \"https://unpkg.com/three@0.160.0/build/three.module.js\",\r\n                \"three/addons/\": \"https://unpkg.com/three@0.160.0/examples/jsm/\"\r\n            }\r\n        }\r\n    </script>\r\n    <script type=\"module\" src=\"script.js\"></script>\r\n</body>\r\n\r\n</html>",
+  "id": "index-gemini-pro-2-5",
+  "metadata": {
+    "prompt": "Imported from one-page directory",
+    "tags": [
+      "Three.js",
+      "3D Graphics"
+    ],
+    "timestamp": "2025-08-04T21:59:57.982Z",
+    "model": "gemini-pro-2.5",
+    "description": "An interactive 3D visualization built with Three.js featuring three.js, 3d graphics."
+  }
+}

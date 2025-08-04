@@ -1,0 +1,16 @@
+{
+  "title": "ASCII Sphere",
+  "htmlContent": "<!DOCTYPE html>\r\n<html lang=\"en\">\r\n<head>\r\n  <meta charset=\"UTF-8\">\r\n  <title>ASCII Sphere</title>\r\n  <script src=\"https://cdn.jsdelivr.net/npm/p5@1.6.0/lib/p5.min.js\"></script>\r\n</head>\r\n<body>\r\n<script>\r\nlet points = [];\r\n\r\nfunction setup() {\r\n  createCanvas(400, 400, WEBGL);\r\n  camera(0, 0, -100, 0, 0, 0, 0, 1, 0);\r\n\r\n  for (let i = 0; i < 500; i++) {\r\n    let theta = random(TWO_PI);\r\n    let phi = random(PI);\r\n    let x = sin(phi) * cos(theta);\r\n    let y = sin(phi) * sin(theta);\r\n    let z = cos(phi);\r\n    points.push({x: x * 30, y: y * 30, z: z * 30});\r\n  }\r\n}\r\n\r\nfunction draw() {\r\n  background(0);\r\n  let angle = frameCount * 0.01;\r\n\r\n  for (let point of points) {\r\n    let rotatedX = point.x * cos(angle) - point.z * sin(angle);\r\n    let rotatedZ = point.x * sin(angle) + point.z * cos(angle);\r\n    let brightness = map(rotatedZ, -30, 30, 255, 0);\r\n\r\n    fill(brightness);\r\n    push();\r\n    translate(rotatedX, point.y, rotatedZ);\r\n    textSize(10);\r\n    textAlign(CENTER, CENTER);\r\n    text('5', 0, 0);\r\n    pop();\r\n  }\r\n}\r\n</script>\r\n</body>\r\n</html>\r\n",
+  "id": "ascii-qwen3-30b-a3b",
+  "metadata": {
+    "prompt": "Imported from one-page directory",
+    "tags": [
+      "WebGL",
+      "Shaders",
+      "Astronomy"
+    ],
+    "timestamp": "2025-08-04T21:59:58.121Z",
+    "model": "qwen3-30b-a3b",
+    "description": "An interactive web application featuring webgl, shaders, astronomy."
+  }
+}

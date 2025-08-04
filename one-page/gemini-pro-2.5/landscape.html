@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-B">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Procedural Terrain</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://esm.sh/three@0.160.0",
+                "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/",
+                "simplex-noise": "https://esm.sh/simplex-noise@3.0.1",
+                "lil-gui": "https://esm.sh/lil-gui@0.19.1"
+            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import SimplexNoise from 'simplex-noise';
+        import GUI from 'lil-gui';
+
+        let scene, camera, renderer, controls;
+        let terrainMesh;
+        let simplex;
+
+        const params = {
+            // Terrain
+            seed: 'threejs-terrain',
+            planeSize: 500,
+            segments: 150, // Higher for more detail, lower for performance
+            scale: 150, // Noise scale
+            octaves: 8,
+            persistence: 0.5,
+            lacunarity: 2.0,
+            heightMultiplier: 60,
+            flatness: 1.0, // Power exponent for height: >1 sharper peaks, <1 flatter valleys
+
+            // Dropoff (simple radial)
+            enableDropoff: true,
+            dropoffStart: 0.7, // Start dropoff at 70% of radius
+            dropoffStrength: 2.0, // How sharp the dropoff is
+
+            // Colors
+            snowColor: '#FFFFFF',
+            rockColor: '#808080',
+            grassColor: '#556B2F',
+            waterColor: '#4682B4', // For very low areas
+            snowLine: 0.65, // Normalized height
+            rockLine: 0.3,  // Normalized height
+            waterLine: 0.05, // Normalized height
+
+            // Atmosphere (Fog)
+            fogColor: '#d3d3d3', // Light gray, similar to video's sky
+            fogDensity: 0.0035,
+
+            // Lighting
+            sunColor: '#FFFFFF',
+            sunIntensity: 2.0,
+            ambientColor: '#505050',
+        };
+
+        let sunLight, ambientLight;
+
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(params.fogColor); // Match fog for seamlessness
+            updateFog();
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.set(150, 100, 150);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Lights
+            sunLight = new THREE.DirectionalLight(new THREE.Color(params.sunColor), params.sunIntensity);
+            sunLight.position.set(100, 200, 100);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 500;
+            sunLight.shadow.camera.left = -params.planeSize / 1.5;
+            sunLight.shadow.camera.right = params.planeSize / 1.5;
+            sunLight.shadow.camera.top = params.planeSize / 1.5;
+            sunLight.shadow.camera.bottom = -params.planeSize / 1.5;
+            scene.add(sunLight);
+            scene.add(sunLight.target); // Good practice
+
+            ambientLight = new THREE.AmbientLight(new THREE.Color(params.ambientColor));
+            scene.add(ambientLight);
+
+            // Initial terrain generation
+            generateTerrain();
+
+            // GUI
+            setupGUI();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize, false);
+
+            animate();
+        }
+
+        function fbm(x, y, simplexInstance) {
+            let total = 0;
+            let frequency = 1;
+            let amplitude = 1;
+            let maxValue = 0; // Used for normalizing to 0-1 range
+
+            for (let i = 0; i < params.octaves; i++) {
+                total += simplexInstance.noise2D(x * frequency / params.scale, y * frequency / params.scale) * amplitude;
+                maxValue += amplitude;
+                amplitude *= params.persistence;
+                frequency *= params.lacunarity;
+            }
+            return (total / maxValue + 1) / 2; // Normalize to 0-1
+        }
+
+        function generateTerrain() {
+            if (terrainMesh) {
+                scene.remove(terrainMesh);
+                terrainMesh.geometry.dispose();
+                terrainMesh.material.dispose();
+            }
+
+            simplex = new SimplexNoise(params.seed);
+
+            const geometry = new THREE.PlaneGeometry(params.planeSize, params.planeSize, params.segments, params.segments);
+            const positions = geometry.attributes.position;
+            const colors = [];
+
+            let minHeight = Infinity;
+            let maxHeight = -Infinity;
+            const heightData = [];
+
+            // First pass: calculate heights
+            for (let i = 0; i < positions.count; i++) {
+                const x = positions.getX(i);
+                const y = positions.getY(i); // This is actually z in world space for a horizontal plane
+
+                let noiseVal = fbm(x, y, simplex);
+
+                // Apply flatness (power function)
+                noiseVal = Math.pow(noiseVal, params.flatness);
+
+                let height = noiseVal * params.heightMultiplier;
+
+                // Radial dropoff
+                if (params.enableDropoff) {
+                    const distToCenter = Math.sqrt(x * x + y * y);
+                    const maxDist = params.planeSize * 0.5;
+                    const normalizedDist = distToCenter / maxDist;
+
+                    // Create a falloff curve based on distance from the center
+                    if (normalizedDist > params.dropoffStart) {
+                        // Remap the distance from the start of the dropoff to the edge to a 0-1 range
+                        const t = (normalizedDist - params.dropoffStart) / (1.0 - params.dropoffStart);
+                        // Apply a power function to control the steepness of the falloff
+                        const falloff = Math.pow(1.0 - t, params.dropoffStrength);
+                        height *= Math.max(0, falloff);
+                    }
+                }
+
+
+                heightData.push(height);
+                if (height < minHeight) minHeight = height;
+                if (height > maxHeight) maxHeight = height;
+            }
+
+            const heightRange = maxHeight - minHeight;
+
+            // Second pass: set vertex positions and colors
+            for (let i = 0; i < positions.count; i++) {
+                let currentHeight = heightData[i];
+                positions.setZ(i, currentHeight); // Plane is XY, so Z is height
+
+                // Normalize height for coloring
+                const normalizedHeight = heightRange > 0 ? (currentHeight - minHeight) / heightRange : 0.5;
+
+                let color = new THREE.Color();
+                if (normalizedHeight > params.snowLine) {
+                    color.set(params.snowColor);
+                } else if (normalizedHeight > params.rockLine) {
+                    // Blend between rock and snow
+                    const t = (normalizedHeight - params.rockLine) / (params.snowLine - params.rockLine);
+                    color.set(params.rockColor).lerp(new THREE.Color(params.snowColor), t);
+                } else if (normalizedHeight > params.waterLine) {
+                    // Blend between grass and rock
+                    const t = (normalizedHeight - params.waterLine) / (params.rockLine - params.waterLine);
+                    color.set(params.grassColor).lerp(new THREE.Color(params.rockColor), t);
+                } else {
+                    // Blend between water and grass
+                    const t = normalizedHeight / params.waterLine;
+                    color.set(params.waterColor).lerp(new THREE.Color(params.grassColor), t);
+                }
+                colors.push(color.r, color.g, color.b);
+            }
+
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geometry.computeVertexNormals();
+
+            const material = new THREE.MeshStandardMaterial({
+                vertexColors: true,
+                roughness: 0.8,
+                metalness: 0.1,
+                // wireframe: true, // For debugging
+            });
+
+            terrainMesh = new THREE.Mesh(geometry, material);
+            terrainMesh.rotation.x = -Math.PI / 2; // Rotate to be horizontal
+            terrainMesh.receiveShadow = true;
+            terrainMesh.castShadow = true; // Can be performance intensive for high segment counts
+            scene.add(terrainMesh);
+        }
+
+        function updateFog() {
+            if (scene.fog) {
+                scene.fog.color.set(params.fogColor);
+                scene.fog.density = params.fogDensity;
+            } else {
+                scene.fog = new THREE.FogExp2(new THREE.Color(params.fogColor), params.fogDensity);
+            }
+            if (scene.background instanceof THREE.Color) {
+                scene.background.set(params.fogColor);
+            } else {
+                scene.background = new THREE.Color(params.fogColor);
+            }
+        }
+
+        function updateLights() {
+            sunLight.color.set(params.sunColor);
+            sunLight.intensity = params.sunIntensity;
+            ambientLight.color.set(params.ambientColor);
+        }
+
+        function setupGUI() {
+            const gui = new GUI();
+
+            const terrainFolder = gui.addFolder('Terrain');
+            terrainFolder.add(params, 'seed').name('Seed').onFinishChange(generateTerrain);
+            terrainFolder.add(params, 'planeSize', 100, 1000, 10).name('Plane Size').onFinishChange(generateTerrain);
+            terrainFolder.add(params, 'segments', 50, 300, 10).name('Segments').onFinishChange(generateTerrain);
+            terrainFolder.add(params, 'scale', 10, 500, 1).name('Noise Scale').onChange(generateTerrain);
+            terrainFolder.add(params, 'octaves', 1, 16, 1).name('Octaves').onChange(generateTerrain);
+            terrainFolder.add(params, 'persistence', 0.1, 1.0, 0.01).name('Persistence').onChange(generateTerrain);
+            terrainFolder.add(params, 'lacunarity', 1.5, 4.0, 0.01).name('Lacunarity').onChange(generateTerrain);
+            terrainFolder.add(params, 'heightMultiplier', 10, 200, 1).name('Height Multiplier').onChange(generateTerrain);
+            terrainFolder.add(params, 'flatness', 0.1, 3.0, 0.01).name('Flatness Power').onChange(generateTerrain);
+
+            const dropoffFolder = gui.addFolder('Terrain Dropoff');
+            dropoffFolder.add(params, 'enableDropoff').name('Enable Dropoff').onChange(generateTerrain);
+            dropoffFolder.add(params, 'dropoffStart', 0.1, 0.95, 0.01).name('Dropoff Start (%)').onChange(generateTerrain);
+            dropoffFolder.add(params, 'dropoffStrength', 0.5, 10.0, 0.1).name('Dropoff Strength').onChange(generateTerrain);
+
+
+            const colorsFolder = gui.addFolder('Colors & Levels');
+            colorsFolder.addColor(params, 'snowColor').name('Snow Color').onChange(generateTerrain);
+            colorsFolder.addColor(params, 'rockColor').name('Rock Color').onChange(generateTerrain);
+            colorsFolder.addColor(params, 'grassColor').name('Grass Color').onChange(generateTerrain);
+            colorsFolder.addColor(params, 'waterColor').name('Water Color').onChange(generateTerrain);
+            colorsFolder.add(params, 'snowLine', 0, 1, 0.01).name('Snow Line').onChange(generateTerrain);
+            colorsFolder.add(params, 'rockLine', 0, 1, 0.01).name('Rock Line').onChange(generateTerrain);
+            colorsFolder.add(params, 'waterLine', 0, 1, 0.01).name('Water Line').onChange(generateTerrain);
+
+            const atmosphereFolder = gui.addFolder('Atmosphere');
+            atmosphereFolder.addColor(params, 'fogColor').name('Fog Color').onChange(updateFog);
+            atmosphereFolder.add(params, 'fogDensity', 0, 0.01, 0.0001).name('Fog Density').onChange(updateFog);
+
+            const lightingFolder = gui.addFolder('Lighting');
+            lightingFolder.addColor(params, 'sunColor').name('Sun Color').onChange(updateLights);
+            lightingFolder.add(params, 'sunIntensity', 0, 5, 0.1).name('Sun Intensity').onChange(updateLights);
+            lightingFolder.addColor(params, 'ambientColor').name('Ambient Color').onChange(updateLights);
+
+            gui.onChange(event => {
+                // Some specific updates might be needed if not covered by individual onChanges
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

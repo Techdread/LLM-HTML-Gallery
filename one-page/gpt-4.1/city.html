@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Procedural City Generator</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.85);
+            border-radius: 8px;
+            padding: 12px 20px 8px 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            font-family: sans-serif;
+            font-size: 15px;
+        }
+
+        #ui label {
+            margin-right: 6px;
+        }
+
+        #ui input[type=range] {
+            width: 80px;
+        }
+
+        #ui select {
+            margin-left: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <label>City Seed: <input type="number" id="seed" min="1" max="99999" value="1" /></label>
+        <label>City Size: <input type="range" id="size" min="8" max="40" value="20" /></label>
+        <label>Density: <input type="range" id="density" min="1" max="3" step="0.1" value="2" /></label>
+        <label>Districts: <select id="districtStyle">
+                <option value="grid">Grid</option>
+                <option value="organic">Organic</option>
+            </select></label>
+        <button id="regen">Regenerate</button>
+    </div>
+    <!-- Import map for three.js and its addons -->
+    <script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+  }
+}
+</script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+
+        let scene, camera, renderer, controls, cityGroup, clock;
+        let SEED = 1, CITY_SIZE = 20, DENSITY = 2, DISTRICT_STYLE = 'grid';
+
+        init();
+        generateCity();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xaec6cf);
+            clock = new THREE.Clock();
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, CITY_SIZE * 1.5, CITY_SIZE * 2.2);
+            camera.lookAt(0, 0, 0);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.15;
+            controls.maxPolarAngle = Math.PI / 2.1;
+            controls.minDistance = CITY_SIZE * 0.7;
+            controls.maxDistance = CITY_SIZE * 4;
+            // UI events
+            document.getElementById('regen').onclick = () => {
+                updateParams();
+                generateCity();
+            };
+            document.getElementById('seed').oninput = document.getElementById('size').oninput = document.getElementById('density').oninput = document.getElementById('districtStyle').oninput = function () {
+                updateParams();
+            };
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function updateParams() {
+            SEED = parseInt(document.getElementById('seed').value);
+            CITY_SIZE = parseInt(document.getElementById('size').value);
+            DENSITY = parseFloat(document.getElementById('density').value);
+            DISTRICT_STYLE = document.getElementById('districtStyle').value;
+        }
+
+        function generateCity() {
+            if (cityGroup) scene.remove(cityGroup);
+            cityGroup = new THREE.Group();
+            const rng = mulberry32(SEED);
+            const districtMap = createDistrictMap(CITY_SIZE, DISTRICT_STYLE, rng);
+            // Roads
+            const roadMat = new THREE.MeshStandardMaterial({ color: 0x222428, roughness: 0.5, metalness: 0.3 });
+            for (let i = 0; i < CITY_SIZE; ++i) for (let j = 0; j < CITY_SIZE; ++j) {
+                if (districtMap.roads[i][j]) {
+                    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 0.08, 1), roadMat);
+                    mesh.position.set(i - CITY_SIZE / 2, 0, j - CITY_SIZE / 2);
+                    cityGroup.add(mesh);
+                }
+            }
+            // District Zoning + Buildings
+            for (let i = 0; i < CITY_SIZE; ++i) for (let j = 0; j < CITY_SIZE; ++j) {
+                if (!districtMap.roads[i][j]) {
+                    const zone = districtMap.zones[i][j];
+                    if (!zone) continue;
+                    const height = getBuildingHeight(zone, rng, DENSITY, i, j, CITY_SIZE);
+                    const mesh = createBuildingMesh(zone, height, rng);
+                    mesh.position.set(i - CITY_SIZE / 2, height / 2, j - CITY_SIZE / 2);
+                    cityGroup.add(mesh);
+                }
+            }
+            // Parks/Green spaces
+            for (const park of districtMap.parks) {
+                const parkGeo = new THREE.BoxGeometry(park.size, 0.06, park.size);
+                const parkMat = new THREE.MeshStandardMaterial({ color: 0x61c48a });
+                const parkMesh = new THREE.Mesh(parkGeo, parkMat);
+                parkMesh.position.set(park.x - CITY_SIZE / 2, 0.035, park.z - CITY_SIZE / 2);
+                cityGroup.add(parkMesh);
+            }
+            // Street lights (simple for demo)
+            for (let i = 0; i < CITY_SIZE; ++i) for (let j = 0; j < CITY_SIZE; ++j) {
+                if (districtMap.roads[i][j] && rng() < 0.06) {
+                    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.7, 10), new THREE.MeshStandardMaterial({ color: 0xe5e3ce, metalness: 0.6, roughness: 0.4 }));
+                    pole.position.set(i - CITY_SIZE / 2, 0.35, j - CITY_SIZE / 2);
+                    cityGroup.add(pole);
+                    const light = new THREE.PointLight(0xffeeaa, 0.7, 2.5, 2);
+                    light.position.set(i - CITY_SIZE / 2, 0.72, j - CITY_SIZE / 2);
+                    cityGroup.add(light);
+                }
+            }
+            // Add subtle city ambient & sun
+            scene.add(new THREE.AmbientLight(0xddddff, 0.35));
+            const sun = new THREE.DirectionalLight(0xfffbdb, 1.2);
+            sun.position.set(1.8, 2.6, 1.7);
+            scene.add(sun);
+            // Drop shadow below city
+            const cityBase = new THREE.Mesh(
+                new THREE.CylinderGeometry(CITY_SIZE * 0.73, CITY_SIZE * 0.68, 0.08, 50),
+                new THREE.MeshStandardMaterial({ color: 0x2c393c, roughness: 0.6, metalness: 0.2, transparent: true, opacity: 0.6 })
+            );
+            cityBase.position.y = -0.04;
+            cityGroup.add(cityBase);
+            scene.add(cityGroup);
+        }
+
+        function createDistrictMap(size, style, rng) {
+            // Initialize empty grid
+            const roads = Array(size).fill(0).map(() => Array(size).fill(false));
+            const zones = Array(size).fill(0).map(() => Array(size).fill(null));
+            // Main road structure
+            if (style == "grid") {
+                for (let i = 0; i < size; i += 4 + Math.floor(rng() * 2)) {
+                    for (let j = 0; j < size; ++j) roads[i][j] = true;
+                }
+                for (let j = 0; j < size; j += 4 + Math.floor(rng() * 2)) {
+                    for (let i = 0; i < size; ++i) roads[i][j] = true;
+                }
+            } else {
+                // Simple "organic" network: some sine+noise based paths
+                for (let k = 0; k < 3; ++k) {
+                    let cx = Math.floor(size / 2 + (size / 4) * Math.sin(rng() * Math.PI * 2));
+                    let cz = Math.floor(size / 2 + (size / 4) * Math.cos(rng() * Math.PI * 2));
+                    for (let t = 0; t < size; ++t) {
+                        let x = Math.floor(cx + Math.sin(t / size * Math.PI * 2 + k) * size / 3 + (rng() - 0.5) * 2);
+                        let z = Math.floor(cz + Math.cos(t / size * Math.PI * 2 + k) * size / 3 + (rng() - 0.5) * 2);
+                        if (x >= 0 && x < size && z >= 0 && z < size) roads[x][z] = true;
+                    }
+                }
+                // Connect some radial lines from center
+                let cx = Math.floor(size / 2), cz = Math.floor(size / 2);
+                for (let a = 0; a < 6; ++a) {
+                    for (let r = 0; r < size / 2 - 1; ++r) {
+                        let x = Math.floor(cx + Math.sin(a / 6 * Math.PI * 2) * r);
+                        let z = Math.floor(cz + Math.cos(a / 6 * Math.PI * 2) * r);
+                        if (x >= 0 && x < size && z >= 0 && z < size) roads[x][z] = true;
+                    }
+                }
+            }
+            // Place parks
+            const parks = [];
+            for (let p = 0; p < size / 5; ++p) {
+                let parkSize = Math.round(2.2 + rng() * 2);
+                let x = Math.floor(rng() * (size - parkSize));
+                let z = Math.floor(rng() * (size - parkSize));
+                // Try not to overlap roads
+                let clear = true;
+                for (let dx = 0; dx < parkSize; ++dx)for (let dz = 0; dz < parkSize; ++dz) {
+                    if (roads[x + dx][z + dz]) clear = false;
+                }
+                if (clear) parks.push({ x: x + parkSize / 2, z: z + parkSize / 2, size: parkSize });
+            }
+            // Zoning: central = commercial, then residential, then industrial at edge
+            for (let i = 0; i < size; ++i) for (let j = 0; j < size; ++j) {
+                if (roads[i][j]) continue;
+                let distToCenter = Math.sqrt((i - size / 2) ** 2 + (j - size / 2) ** 2);
+                let zone = null;
+                if (distToCenter < size / 6) zone = 'commercial';
+                else if (distToCenter < size / 3) zone = 'residential';
+                else zone = 'industrial';
+                // Mark park cells as park
+                for (const park of parks) {
+                    if (Math.abs(i - park.x) < park.size / 2 && Math.abs(j - park.z) < park.size / 2) zone = null;
+                }
+                zones[i][j] = zone;
+            }
+            return { roads, zones, parks };
+        }
+
+        function getBuildingHeight(zone, rng, density, i, j, size) {
+            if (zone === 'commercial') return 2.8 + rng() * 2.7 + Math.abs(i - size / 2) * 0.12 + density * 0.6;
+            if (zone === 'residential') return 1.2 + rng() * 1.2 + density * 0.5;
+            if (zone === 'industrial') return 0.8 + rng() * 0.6 + density * 0.2;
+            return 0;
+        }
+
+        function createBuildingMesh(zone, h, rng) {
+            let w = 0.65 + rng() * 0.5;
+            let d = 0.65 + rng() * 0.5;
+            if (zone === 'commercial') {
+                if (rng() > 0.7) return createSkyscraperMesh(h, rng);
+                return new THREE.Mesh(
+                    new THREE.BoxGeometry(w, h, d),
+                    new THREE.MeshStandardMaterial({ color: 0x22303d, metalness: 0.4, roughness: 0.4 })
+                );
+            }
+            if (zone === 'residential') {
+                let color = [0xddeef2, 0xf0d8b0, 0xd9bba0, 0xc7eae4, 0xf4a698][Math.floor(rng() * 5)];
+                return new THREE.Mesh(
+                    new THREE.BoxGeometry(w, h, d),
+                    new THREE.MeshStandardMaterial({ color, metalness: 0.15, roughness: 0.65 })
+                );
+            }
+            if (zone === 'industrial') {
+                return new THREE.Mesh(
+                    new THREE.BoxGeometry(w * 1.2, h, d * 1.2),
+                    new THREE.MeshStandardMaterial({ color: 0xa09ea2, metalness: 0.4, roughness: 0.7 })
+                );
+            }
+        }
+        function createSkyscraperMesh(h, rng) {
+            // Multi-part tower with alternating shapes
+            let group = new THREE.Group();
+            let baseH = h * 0.35 + rng() * h * 0.15;
+            let midH = h * 0.3 + rng() * h * 0.1;
+            let topH = h * 0.18 + rng() * h * 0.1;
+            let w = 0.8 + rng() * 0.4;
+            let d = 0.8 + rng() * 0.4;
+            let base = new THREE.Mesh(
+                new THREE.BoxGeometry(w, baseH, d),
+                new THREE.MeshStandardMaterial({ color: 0x294c60, metalness: 0.7, roughness: 0.35 })
+            );
+            base.position.y = baseH / 2;
+            let mid = new THREE.Mesh(
+                new THREE.CylinderGeometry(w * 0.42, w * 0.56, midH, 10),
+                new THREE.MeshStandardMaterial({ color: 0x547a89, metalness: 0.5, roughness: 0.3 })
+            );
+            mid.position.y = baseH + midH / 2 - 0.02;
+            let top = new THREE.Mesh(
+                new THREE.CylinderGeometry(w * 0.32, w * 0.32, topH, 10),
+                new THREE.MeshStandardMaterial({ color: 0xabb8c3, metalness: 0.5, roughness: 0.25 })
+            );
+            top.position.y = baseH + midH + topH / 2 - 0.04;
+            group.add(base, mid, top);
+            return group;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Simple seeded PRNG
+        function mulberry32(a) {
+            return function () {
+                var t = a += 0x6D2B79F5;
+                t = Math.imul(t ^ t >>> 15, t | 1);
+                t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            }
+        }
+    </script>
+</body>
+
+</html>

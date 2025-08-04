@@ -1,0 +1,15 @@
+{
+  "title": "3D Lennard-Jones Fluid/Gas Simulation",
+  "htmlContent": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>3D Lennard-Jones Fluid/Gas Simulation</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n  <!-- Import Map for ES Modules -->\n  <script type=\"importmap\">\n    {\n      \"imports\": {\n        \"three\": \"https://cdn.skypack.dev/three@0.128.0\",\n        \"three/addons/\": \"https://cdn.skypack.dev/three@0.128.0/examples/jsm/\"\n      }\n    }\n  </script>\n</head>\n<body>\n  <div id=\"container\">\n    <!-- Container for the ThreeJS canvas -->\n    <div id=\"simulation-container\"></div>\n    \n    <!-- Control panel for simulation parameters and display -->\n    <div id=\"controls\">\n      <h2>Simulation Controls</h2>\n      <div>\n         <label for=\"numParticles\">Number of Particles:</label>\n         <input type=\"number\" id=\"numParticles\" min=\"1\" max=\"1000\" value=\"50\">\n      </div>\n      <div>\n         <label for=\"temperature\">Initial Temperature:</label>\n         <input type=\"number\" id=\"temperature\" step=\"0.1\" value=\"1\">\n      </div>\n      <div>\n         <label for=\"boxSize\">Box Size:</label>\n         <input type=\"number\" id=\"boxSize\" step=\"1\" value=\"50\">\n      </div>\n      <div>\n         <label for=\"epsilon\">Lennard-Jones ε:</label>\n         <input type=\"number\" id=\"epsilon\" step=\"0.1\" value=\"1\">\n      </div>\n      <div>\n         <label for=\"sigma\">Lennard-Jones σ:</label>\n         <input type=\"number\" id=\"sigma\" step=\"0.1\" value=\"1\">\n      </div>\n      <div>\n         <label for=\"timeStep\">Time Step (dt):</label>\n         <input type=\"number\" id=\"timeStep\" step=\"0.001\" value=\"0.01\">\n      </div>\n      <div>\n         <button id=\"startPauseBtn\">Start Simulation</button>\n         <button id=\"resetBtn\">Reset Simulation</button>\n      </div>\n      <h2>Simulation Data</h2>\n      <div>\n         <p>Temperature: <span id=\"displayTemperature\">0</span></p>\n         <p>Potential Energy: <span id=\"displayPotentialEnergy\">0</span></p>\n         <p>Kinetic Energy: <span id=\"displayKineticEnergy\">0</span></p>\n         <p>Elapsed Time: <span id=\"displayTime\">0</span> s</p>\n      </div>\n    </div>\n  </div>\n  \n  <!-- Include our simulation script -->\n  <script type=\"module\" src=\"simulation.js\"></script>\n</body>\n</html>\n",
+  "id": "index-gpt-o3-high",
+  "metadata": {
+    "prompt": "Imported from one-page directory",
+    "tags": [
+      "Particles",
+      "Simulation"
+    ],
+    "timestamp": "2025-08-04T21:59:58.056Z",
+    "model": "gpt-o3-high",
+    "description": "An interactive web application featuring particles, simulation."
+  }
+}

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Plane Deformation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #8B732B;
+            /* Similar to video bg */
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 48px;
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">1 FACE</div>
+    <div id="controls">
+        <button id="nextButton">Next & Drop</button>
+    </div>
+
+    <!-- Create dummy sound files or replace with actual paths -->
+    <audio id="sound1" src="sounds/glass_light_tap.mp3" preload="auto"></audio>
+    <audio id="sound2" src="sounds/glass_crack_short.mp3" preload="auto"></audio>
+    <audio id="sound3" src="sounds/glass_shatter_medium.mp3" preload="auto"></audio>
+    <audio id="sound4" src="sounds/glass_shatter_heavy.mp3" preload="auto"></audio>
+    <audio id="sound5" src="sounds/glass_multiple_breaks.mp3" preload="auto"></audio>
+    <audio id="sound6" src="sounds/soft_impact_squish1.mp3" preload="auto"></audio>
+    <audio id="sound7" src="sounds/soft_impact_squish2.mp3" preload="auto"></audio>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="script.js"></script>
+</body>
+
+</html>

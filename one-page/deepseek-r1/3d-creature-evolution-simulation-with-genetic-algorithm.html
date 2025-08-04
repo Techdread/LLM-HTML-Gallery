@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>3D Creature Evolution</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        button {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <button id="startBtn">Start</button>
+        <button id="resetBtn">Reset</button>
+        <div>Generation: <span id="generation">0</span></div>
+        <div>Best Fitness: <span id="bestFitness">0.00</span></div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        class Creature {
+            constructor(genome) {
+                this.genome = genome;
+                this.bodies = [];
+                this.joints = [];
+                this.meshes = [];
+            }
+
+            createPhysicsObjects(world) {
+                // Main body
+                const bodySize = this.genome.bodySize;
+                const bodyShape = new CANNON.Box(new CANNON.Vec3(bodySize / 2, bodySize / 2, bodySize / 2));
+                const bodyBody = new CANNON.Body({ mass: 1 });
+                bodyBody.addShape(bodyShape);
+                bodyBody.position.set(0, bodySize, 0);
+                world.addBody(bodyBody);
+                this.bodies.push(bodyBody);
+
+                // Legs
+                const createLeg = (side) => {
+                    const legLength = this.genome.legLength;
+                    const legShape = new CANNON.Box(new CANNON.Vec3(legLength / 2, legLength / 2, legLength / 2));
+                    const legBody = new CANNON.Body({ mass: 0.5 });
+                    legBody.addShape(legShape);
+
+                    const pivotX = side === 'left' ? -bodySize / 2 : bodySize / 2;
+                    legBody.position.set(pivotX, bodySize - legLength / 2, 0);
+                    world.addBody(legBody);
+                    this.bodies.push(legBody);
+
+                    const hinge = new CANNON.HingeConstraint(
+                        bodyBody,
+                        legBody,
+                        {
+                            pivotA: new CANNON.Vec3(pivotX, 0, 0),
+                            pivotB: new CANNON.Vec3(side === 'left' ? legLength / 2 : -legLength / 2, 0, 0),
+                            axisA: new CANNON.Vec3(0, 0, 1),
+                            axisB: new CANNON.Vec3(0, 0, 1)
+                        }
+                    );
+                    world.addConstraint(hinge);
+                    this.joints.push(hinge);
+                };
+
+                createLeg('left');
+                createLeg('right');
+            }
+
+            applyActuation(time) {
+                const freq = this.genome.frequency;
+                const amp = this.genome.hingeAmplitude;
+                const phaseOffset = this.genome.phaseOffset;
+
+                this.joints.forEach((joint, i) => {
+                    const phase = i === 0 ? 0 : Math.PI;
+                    const angle = amp * Math.sin(time * freq * 2 * Math.PI + phaseOffset + phase);
+                    joint.enableMotor();
+                    joint.motorTargetVelocity = angle;
+                    joint.motorMaxForce = 1000;
+                });
+            }
+
+            removeFromWorld(world) {
+                this.bodies.forEach(body => world.removeBody(body));
+                this.joints.forEach(joint => world.removeConstraint(joint));
+            }
+        }
+
+        class GeneticAlgorithm {
+            constructor(populationSize) {
+                this.populationSize = populationSize;
+                this.population = [];
+                this.generation = 0;
+                this.bestFitness = 0;
+            }
+
+            initializePopulation() {
+                for (let i = 0; i < this.populationSize; i++) {
+                    this.population.push({
+                        genome: {
+                            bodySize: Math.random() * 0.3 + 0.2,
+                            legLength: Math.random() * 0.4 + 0.1,
+                            hingeAmplitude: Math.random() * 0.5 + 0.1,
+                            frequency: Math.random() * 2 + 0.5,
+                            phaseOffset: Math.random() * Math.PI * 2
+                        },
+                        fitness: 0
+                    });
+                }
+            }
+
+            evaluatePopulation() {
+                const simTime = 3; // seconds
+                this.population.forEach(individual => {
+                    const world = new CANNON.World();
+                    world.gravity.set(0, -9.82, 0);
+
+                    // Add ground
+                    const ground = new CANNON.Body({ mass: 0 });
+                    ground.addShape(new CANNON.Plane());
+                    ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+                    world.addBody(ground);
+
+                    const creature = new Creature(individual.genome);
+                    creature.createPhysicsObjects(world);
+
+                    const startX = creature.bodies[0].position.x;
+                    let time = 0;
+                    while (time < simTime) {
+                        creature.applyActuation(time);
+                        world.step(1 / 60);
+                        time += 1 / 60;
+                    }
+                    individual.fitness = creature.bodies[0].position.x - startX;
+                    creature.removeFromWorld(world);
+                });
+                this.population.sort((a, b) => b.fitness - a.fitness);
+                this.bestFitness = this.population[0].fitness;
+            }
+
+            nextGeneration() {
+                const newPop = [];
+                while (newPop.length < this.populationSize) {
+                    const parentA = this.tournamentSelect();
+                    const parentB = this.tournamentSelect();
+                    const child = this.crossover(parentA, parentB);
+                    newPop.push({ genome: this.mutate(child), fitness: 0 });
+                }
+                this.population = newPop;
+                this.generation++;
+            }
+
+            tournamentSelect() {
+                const candidates = Array.from({ length: 3 }, () =>
+                    this.population[Math.floor(Math.random() * this.population.length)]);
+                return candidates.reduce((a, b) => a.fitness > b.fitness ? a : b).genome;
+            }
+
+            crossover(a, b) {
+                const child = {};
+                for (const key in a) {
+                    child[key] = Math.random() < 0.5 ? a[key] : b[key];
+                }
+                return child;
+            }
+
+            mutate(genome) {
+                Object.keys(genome).forEach(key => {
+                    if (Math.random() < 0.2) {
+                        genome[key] += (Math.random() - 0.5) * 0.3 * genome[key];
+                    }
+                });
+                return genome;
+            }
+        }
+
+        class Simulation {
+            constructor() {
+                this.initThree();
+                this.initPhysics();
+                this.initGA();
+                this.setupControls();
+                this.animate();
+            }
+
+            initThree() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                document.body.appendChild(this.renderer.domElement);
+                this.camera.position.set(5, 5, 5);
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+
+                // Lighting
+                const light = new THREE.DirectionalLight(0xffffff, 1);
+                light.position.set(5, 5, 5);
+                this.scene.add(light);
+                this.scene.add(new THREE.AmbientLight(0x404040));
+            }
+
+            initPhysics() {
+                this.physicsWorld = new CANNON.World();
+                this.physicsWorld.gravity.set(0, -9.82, 0);
+
+                // Ground
+                const ground = new CANNON.Body({ mass: 0 });
+                ground.addShape(new CANNON.Plane());
+                ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+                this.physicsWorld.addBody(ground);
+
+                const groundMesh = new THREE.Mesh(
+                    new THREE.PlaneGeometry(20, 20),
+                    new THREE.MeshPhongMaterial({ color: 0x808080 })
+                );
+                groundMesh.rotation.x = -Math.PI / 2;
+                this.scene.add(groundMesh);
+            }
+
+            initGA() {
+                this.ga = new GeneticAlgorithm(12);
+                this.ga.initializePopulation();
+                this.currentCreature = null;
+            }
+
+            setupControls() {
+                document.getElementById('startBtn').addEventListener('click', () => this.runGeneration());
+                document.getElementById('resetBtn').addEventListener('click', () => {
+                    this.ga = new GeneticAlgorithm(12);
+                    this.ga.initializePopulation();
+                    this.generation = 0;
+                    this.updateUI();
+                });
+            }
+
+            async runGeneration() {
+                this.ga.evaluatePopulation();
+                this.showBestCreature();
+                this.ga.nextGeneration();
+                this.updateUI();
+            }
+
+            showBestCreature() {
+                if (this.currentCreature) {
+                    this.currentCreature.removeFromWorld(this.physicsWorld);
+                    this.currentCreature.meshes.forEach(mesh => this.scene.remove(mesh));
+                }
+
+                const best = this.ga.population[0];
+                this.currentCreature = new Creature(best.genome);
+                this.currentCreature.createPhysicsObjects(this.physicsWorld);
+
+                // Create meshes
+                this.currentCreature.bodies.forEach(body => {
+                    const size = body.shapes[0].halfExtents;
+                    const mesh = new THREE.Mesh(
+                        new THREE.BoxGeometry(size.x * 2, size.y * 2, size.z * 2),
+                        new THREE.MeshPhongMaterial({ color: 0x00ff00 })
+                    );
+                    this.scene.add(mesh);
+                    this.currentCreature.meshes.push(mesh);
+                });
+            }
+
+            updateUI() {
+                document.getElementById('generation').textContent = this.ga.generation;
+                document.getElementById('bestFitness').textContent = this.ga.bestFitness.toFixed(2);
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+
+                // Update physics
+                this.physicsWorld.step(1 / 60);
+                if (this.currentCreature) {
+                    this.currentCreature.applyActuation(performance.now() / 1000);
+
+                    // Sync meshes with physics bodies
+                    this.currentCreature.bodies.forEach((body, i) => {
+                        this.currentCreature.meshes[i].position.copy(body.position);
+                        this.currentCreature.meshes[i].quaternion.copy(body.quaternion);
+                    });
+                }
+
+                this.renderer.render(this.scene, this.camera);
+                this.controls.update();
+            }
+        }
+
+        // Start simulation
+        new Simulation();
+    </script>
+</body>
+
+</html>

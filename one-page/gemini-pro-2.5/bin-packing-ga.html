@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Bin Packing Visualization</title>
+    <style>
+        /* Basic styling for the page */
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            /* Using Inter font */
+            background-color: #f0f0f0;
+            /* Light gray background */
+            color: #333;
+            overflow: hidden;
+            /* Prevent scrollbars */
+        }
+
+        canvas {
+            display: block;
+            /* Remove extra space below canvas */
+            width: 100%;
+            /* Make canvas responsive */
+            height: 100%;
+        }
+
+        /* Style for a potential info overlay */
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 8px;
+            font-size: 0.9em;
+            max-width: 300px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div id="info">
+        <strong>3D Bin Packing Visualization</strong><br>
+        Drag to rotate, scroll to zoom.<br>
+        Packing based on simplified heuristic from PDF concepts.
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        // Import necessary Three.js components
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 1. Data Structures (Based on PDF Section 3) ---
+
+        /**
+         * Represents a single piece/item to be packed.
+         * @param {number} id - Unique identifier for the piece.
+         * @param {number} width - Width (x-dimension).
+         * @param {number} height - Height (y-dimension).
+         * @param {number} depth - Depth (z-dimension).
+         * @param {number} [value=0] - Value (for knapsack) or other metric.
+         */
+        class Piece {
+            constructor(id, width, height, depth, value = 0) {
+                this.id = id;
+                this.width = width;
+                this.height = height;
+                this.depth = depth;
+                this.value = value; // Useful for knapsack variations
+                this.volume = width * height * depth;
+                this.position = null; // {x, y, z} coordinates of the back-left-bottom corner when placed
+                this.orientation = 0; // Orientation index (0-5) when placed
+                this.isPlaced = false; // Flag indicating if the piece is in the bin
+            }
+        }
+
+        /**
+         * Represents an available corner (potential placement location).
+         * @param {number} x - X-coordinate of the corner.
+         * @param {number} y - Y-coordinate of the corner.
+         * @param {number} z - Z-coordinate of the corner.
+         */
+        class Corner {
+            constructor(x, y, z) {
+                // Represents the back-left-bottom coordinate of available space
+                this.x = x;
+                this.y = y;
+                this.z = z;
+                // Note: A full implementation based on the paper would store detailed
+                // information about the three surfaces defining this corner.
+                // This example simplifies the corner representation.
+            }
+        }
+
+        /**
+         * Represents the container (bin) into which pieces are packed.
+         * @param {number} width - Width (x-dimension) of the bin.
+         * @param {number} height - Height (y-dimension) of the bin.
+         * @param {number} depth - Depth (z-dimension) of the bin.
+         */
+        class Bin {
+            constructor(width, height, depth) {
+                this.width = width;
+                this.height = height;
+                this.depth = depth;
+                this.volume = width * height * depth;
+                this.placedPieces = []; // Array to store references to placed Piece objects
+                // Start with a single corner at the origin (back-left-bottom)
+                this.corners = [new Corner(0, 0, 0)];
+                // Epsilon for floating point comparisons
+                this.epsilon = 0.0001;
+            }
+
+            // --- Placement Validation & Update Logic ---
+
+            /**
+             * Checks if a piece, in a specific orientation, can be validly placed at a given corner.
+             * Checks against bin boundaries and collisions with already placed pieces.
+             * @param {Piece} piece - The piece to check.
+             * @param {Corner} corner - The corner to check placement at.
+             * @param {number} orientation - The orientation index (0-5) to check.
+             * @returns {boolean} - True if placement is valid, false otherwise.
+             */
+            checkPlacement(piece, corner, orientation) {
+                const dims = this.getOrientationDims(piece, orientation);
+
+                // 1. Check bin boundaries (using epsilon for float safety)
+                if (corner.x + dims.w > this.width + this.epsilon ||
+                    corner.y + dims.h > this.height + this.epsilon ||
+                    corner.z + dims.d > this.depth + this.epsilon) {
+                    // console.log(`Piece ${piece.id} failed boundary check at (${corner.x}, ${corner.y}, ${corner.z}) orientation ${orientation}`);
+                    return false;
+                }
+
+                // 2. Check for collisions with other placed pieces
+                // Define the bounding box of the piece if placed at this corner/orientation
+                const pieceBox = new THREE.Box3(
+                    new THREE.Vector3(corner.x, corner.y, corner.z),
+                    new THREE.Vector3(corner.x + dims.w, corner.y + dims.h, corner.z + dims.d)
+                );
+
+                // Iterate through pieces already placed in the bin
+                for (const placed of this.placedPieces) {
+                    // Get the dimensions of the placed piece in its placed orientation
+                    const placedDims = this.getOrientationDims(placed, placed.orientation);
+                    // Define the bounding box of the already placed piece
+                    const placedBox = new THREE.Box3(
+                        new THREE.Vector3(placed.position.x, placed.position.y, placed.position.z),
+                        new THREE.Vector3(placed.position.x + placedDims.w, placed.position.y + placedDims.h, placed.position.z + placedDims.d)
+                    );
+
+                    // Use intersectsBox for an initial check, then a more precise overlap check
+                    if (pieceBox.intersectsBox(placedBox)) {
+                        // Refined check to ensure actual overlap, not just touching faces/edges
+                        if (this.boxesOverlap(pieceBox, placedBox)) {
+                            // console.log(`Piece ${piece.id} failed collision check with Piece ${placed.id} at (${corner.x}, ${corner.y}, ${corner.z}) orientation ${orientation}`);
+                            return false; // Collision detected
+                        }
+                    }
+                }
+                // If no boundary or collision issues found, placement is valid
+                return true;
+            }
+
+            /**
+             * Checks for actual volumetric overlap between two bounding boxes.
+             * THREE.Box3.intersectsBox() returns true even if boxes only touch.
+             * @param {THREE.Box3} box1
+             * @param {THREE.Box3} box2
+             * @returns {boolean} True if boxes overlap volumetrically, false otherwise.
+             */
+            boxesOverlap(box1, box2) {
+                // Check if the intervals overlap on each axis
+                const overlapX = box1.max.x > box2.min.x + this.epsilon && box1.min.x < box2.max.x - this.epsilon;
+                const overlapY = box1.max.y > box2.min.y + this.epsilon && box1.min.y < box2.max.y - this.epsilon;
+                const overlapZ = box1.max.z > box2.min.z + this.epsilon && box1.min.z < box2.max.z - this.epsilon;
+                return overlapX && overlapY && overlapZ;
+            }
+
+
+            /**
+             * Places a piece in the bin at the specified corner and orientation.
+             * Updates the list of placed pieces and the list of available corners.
+             * @param {Piece} piece - The piece to place.
+             * @param {Corner} corner - The corner where the piece is placed.
+             * @param {number} orientation - The orientation index (0-5) used for placement.
+             */
+            placePiece(piece, corner, orientation) {
+                const dims = this.getOrientationDims(piece, orientation);
+
+                // Assign placement details to the piece object
+                piece.position = { x: corner.x, y: corner.y, z: corner.z };
+                piece.orientation = orientation; // Store the orientation used
+                piece.isPlaced = true;
+                this.placedPieces.push(piece); // Add to the list of placed pieces
+
+                // --- Corner Management (Simplified) ---
+
+                // 1. Remove the corner that was just used
+                this.corners = this.corners.filter(c =>
+                    !(Math.abs(c.x - corner.x) < this.epsilon &&
+                        Math.abs(c.y - corner.y) < this.epsilon &&
+                        Math.abs(c.z - corner.z) < this.epsilon)
+                );
+
+                // 2. Add new potential corners created by the placed piece
+                //    (at the front-top-right relative positions from the placed corner)
+                const cornerX = new Corner(corner.x + dims.w, corner.y, corner.z);
+                const cornerY = new Corner(corner.x, corner.y + dims.h, corner.z);
+                const cornerZ = new Corner(corner.x, corner.y, corner.z + dims.d);
+
+                // Add new corners only if they are within bin bounds and not already present
+                if (cornerX.x < this.width - this.epsilon) this.addCornerIfNotExists(cornerX);
+                if (cornerY.y < this.height - this.epsilon) this.addCornerIfNotExists(cornerY);
+                if (cornerZ.z < this.depth - this.epsilon) this.addCornerIfNotExists(cornerZ);
+
+                // 3. Remove existing corners that are now inside the newly placed piece.
+                //    This is a crucial but complex step in robust packing algorithms.
+                //    This simplified version removes corners strictly inside the new piece's volume.
+                //    A full implementation would need to check against the piece's bounding box
+                //    and potentially modify existing corners rather than just deleting them.
+                this.corners = this.corners.filter(c => {
+                    const pieceBox = new THREE.Box3(
+                        new THREE.Vector3(corner.x, corner.y, corner.z),
+                        new THREE.Vector3(corner.x + dims.w, corner.y + dims.h, corner.z + dims.d)
+                    );
+                    const point = new THREE.Vector3(c.x, c.y, c.z);
+                    // Check if the corner point is strictly inside the box (using epsilon)
+                    const isInside = point.x > pieceBox.min.x + this.epsilon && point.x < pieceBox.max.x - this.epsilon &&
+                        point.y > pieceBox.min.y + this.epsilon && point.y < pieceBox.max.y - this.epsilon &&
+                        point.z > pieceBox.min.z + this.epsilon && point.z < pieceBox.max.z - this.epsilon;
+                    return !isInside; // Keep corner if it's NOT strictly inside
+                });
+            }
+
+            /**
+             * Adds a new corner to the list if a corner at the same coordinates doesn't already exist.
+             * Uses epsilon for floating point comparisons.
+             * @param {Corner} newCorner - The potential new corner to add.
+             */
+            addCornerIfNotExists(newCorner) {
+                const exists = this.corners.some(c =>
+                    Math.abs(c.x - newCorner.x) < this.epsilon &&
+                    Math.abs(c.y - newCorner.y) < this.epsilon &&
+                    Math.abs(c.z - newCorner.z) < this.epsilon
+                );
+                if (!exists) {
+                    this.corners.push(newCorner);
+                }
+            }
+
+            /**
+             * Calculates the width, height, and depth of a piece based on a given orientation.
+             * Orientation indices correspond to different axis alignments.
+             * @param {Piece} piece - The piece object.
+             * @param {number} orientation - The orientation index (0-5).
+             * @returns {{w: number, h: number, d: number}} - Dimensions in the specified orientation.
+             */
+            getOrientationDims(piece, orientation) {
+                // 0: (w,h,d) - Original
+                // 1: (h,w,d) - Rotated Z
+                // 2: (w,d,h) - Rotated Y
+                // 3: (d,w,h) - Rotated Y, then Z
+                // 4: (h,d,w) - Rotated X
+                // 5: (d,h,w) - Rotated X, then Z
+                switch (orientation) {
+                    case 0: return { w: piece.width, h: piece.height, d: piece.depth };
+                    case 1: return { w: piece.height, h: piece.width, d: piece.depth };
+                    case 2: return { w: piece.width, h: piece.depth, d: piece.height };
+                    case 3: return { w: piece.depth, h: piece.width, d: piece.height };
+                    case 4: return { w: piece.height, h: piece.depth, d: piece.width };
+                    case 5: return { w: piece.depth, h: piece.height, d: piece.width };
+                    default: return { w: piece.width, h: piece.height, d: piece.depth }; // Default to 0
+                }
+            }
+        }
+
+        // --- 2. Packing Algorithm (Simplified Heuristic) ---
+
+        /**
+         * Packs pieces into the bin using a simple greedy heuristic.
+         * Sorts pieces by volume (descending) and tries to place them at the
+         * first available valid corner/orientation found.
+         * @param {Bin} bin - The bin object to pack into.
+         * @param {Piece[]} pieces - An array of Piece objects to pack.
+         * @returns {Piece[]} - An array of the pieces that were successfully placed.
+         */
+        function packBin(bin, pieces) {
+            console.log("Starting packing process...");
+            // Sort pieces by volume, largest first (a common simple heuristic)
+            pieces.sort((a, b) => b.volume - a.volume);
+            console.log("Pieces sorted by volume (desc).");
+
+            let piecesPlacedCount = 0;
+            const totalPieces = pieces.length;
+            let remainingPieces = pieces.filter(p => !p.isPlaced); // Start with all pieces
+
+            // Keep trying to place pieces until no more can be placed in a full pass
+            let passMadePlacement = true;
+            while (passMadePlacement && remainingPieces.length > 0) {
+                passMadePlacement = false; // Assume no placement in this pass initially
+                // Sort corners by position (e.g., bottom-left-first approach)
+                bin.corners.sort((a, b) => {
+                    if (Math.abs(a.z - b.z) > bin.epsilon) return a.z - b.z; // Prioritize Z first (back)
+                    if (Math.abs(a.y - b.y) > bin.epsilon) return a.y - b.y; // Then Y (bottom)
+                    return a.x - b.x; // Then X (left)
+                });
+
+                // Iterate through remaining pieces for this pass
+                pieceLoop: // Label for the outer loop iterating through pieces
+                for (let i = remainingPieces.length - 1; i >= 0; i--) {
+                    const piece = remainingPieces[i];
+
+                    // Try placing this piece at each available corner
+                    for (const corner of bin.corners) {
+                        // Try all 6 possible orientations
+                        for (let orientation = 0; orientation < 6; orientation++) {
+                            // Check if this placement is valid
+                            if (bin.checkPlacement(piece, corner, orientation)) {
+                                // If valid, place the piece
+                                bin.placePiece(piece, corner, orientation);
+                                piecesPlacedCount++;
+                                console.log(`Placed Piece ${piece.id} (Vol: ${piece.volume}) at (${corner.x.toFixed(2)}, ${corner.y.toFixed(2)}, ${corner.z.toFixed(2)}) orientation ${orientation}. Total placed: ${piecesPlacedCount}`);
+
+                                // Remove the placed piece from the remaining list
+                                remainingPieces.splice(i, 1);
+                                passMadePlacement = true; // Mark that a placement occurred in this pass
+
+                                // *** FIX: Use break to exit inner loops and continue outer loop ***
+                                break pieceLoop; // Exit corner and orientation loops, continue to next piece iteration in this pass
+                            }
+                        }
+                    }
+                    // *** REMOVED: Unnecessary label definition ***
+                    // gotoNextPiece:;
+                } // End of loop through remaining pieces for this pass (pieceLoop)
+
+            } // End of while loop (packing attempts)
+
+            console.log(`Packing finished. Placed ${piecesPlacedCount} out of ${totalPieces} pieces.`);
+            console.log(`Total volume placed: ${bin.placedPieces.reduce((sum, p) => sum + p.volume, 0)} / Bin volume: ${bin.volume}`);
+            console.log(`Remaining corners: ${bin.corners.length}`);
+            return bin.placedPieces;
+        }
+
+
+        // --- 3. Three.js Visualization Setup ---
+        let scene, camera, renderer, controls;
+        let binMesh; // Reference to the bin wireframe
+        const pieceMeshes = new THREE.Group(); // Group to hold all piece meshes
+
+        /**
+         * Initializes the Three.js scene, camera, renderer, controls, and lighting.
+         */
+        function initVisualization() {
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0); // Light gray background
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            // Position camera to provide a good overview of the bin
+            camera.position.set(binDimensions.width * 1.2, binDimensions.height * 1.5, binDimensions.depth * 1.8);
+            // Point the camera towards the center of the bin
+            camera.lookAt(binDimensions.width / 2, binDimensions.height / 2, binDimensions.depth / 2);
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true }); // Enable anti-aliasing
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio); // Adjust for high-DPI screens
+            document.body.appendChild(renderer.domElement); // Add canvas to the page
+
+            // Lighting setup
+            const ambientLight = new THREE.AmbientLight(0x606060, 1.5); // Soft ambient light
+            scene.add(ambientLight);
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
+            directionalLight1.position.set(1, 0.75, 0.5).normalize();
+            scene.add(directionalLight1);
+            const directionalLight2 = new THREE.DirectionalLight(0xaaaaaa, 0.8);
+            directionalLight2.position.set(-1, -0.75, -0.5).normalize();
+            scene.add(directionalLight2);
+
+
+            // OrbitControls setup for user interaction
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.target.set(binDimensions.width / 2, binDimensions.height / 2, binDimensions.depth / 2); // Center controls on the bin
+            controls.enableDamping = true; // Smooth camera movement
+            controls.dampingFactor = 0.1;
+            controls.update(); // Apply initial target
+
+            // Axes Helper for orientation reference (X=red, Y=green, Z=blue)
+            const axesHelper = new THREE.AxesHelper(Math.max(binDimensions.width, binDimensions.height, binDimensions.depth) * 1.2);
+            scene.add(axesHelper);
+
+            // Bin Visualization (Wireframe Box)
+            const binGeometry = new THREE.BoxGeometry(binDimensions.width, binDimensions.height, binDimensions.depth);
+            const binEdges = new THREE.EdgesGeometry(binGeometry);
+            binMesh = new THREE.LineSegments(binEdges, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 })); // Black, slightly thicker lines
+            // Position the center of the wireframe bin at the center of its volume
+            binMesh.position.set(binDimensions.width / 2, binDimensions.height / 2, binDimensions.depth / 2);
+            scene.add(binMesh); // Add bin wireframe to the scene
+            scene.add(pieceMeshes); // Add the group that will hold piece meshes
+
+
+            // Handle window resize events
+            window.addEventListener('resize', onWindowResize, false);
+
+            // Start the animation loop
+            animate();
+            console.log("Three.js visualization initialized.");
+        }
+
+        /**
+         * Updates the visualization to show the packed pieces.
+         * Clears previous piece meshes and creates new ones based on the packing result.
+         * @param {Piece[]} packedPieces - Array of placed Piece objects.
+         * @param {Bin} bin - The Bin object (needed for getOrientationDims).
+         */
+        function visualizePacking(packedPieces, bin) {
+            // Clear any previously rendered piece meshes
+            pieceMeshes.clear();
+
+            // Create a mesh for each placed piece
+            packedPieces.forEach(piece => {
+                // Get dimensions based on the orientation the piece was placed in
+                const dims = bin.getOrientationDims(piece, piece.orientation);
+                // Create box geometry with these dimensions
+                const geometry = new THREE.BoxGeometry(dims.w, dims.h, dims.d);
+                // Create material with a unique random color for each piece
+                const material = new THREE.MeshLambertMaterial({
+                    color: new THREE.Color(Math.random() * 0xffffff),
+                    transparent: true, // Enable transparency
+                    opacity: 0.9 // Slightly transparent to see overlaps if any
+                });
+                const cube = new THREE.Mesh(geometry, material);
+
+                // Position the center of the cube mesh correctly
+                // The piece's position is its back-left-bottom corner
+                cube.position.set(
+                    piece.position.x + dims.w / 2,
+                    piece.position.y + dims.h / 2,
+                    piece.position.z + dims.d / 2
+                );
+                pieceMeshes.add(cube); // Add the piece mesh to the group
+
+                // Optional: Add wireframe edges to each piece for better definition
+                const edges = new THREE.EdgesGeometry(geometry);
+                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x333333, transparent: true, opacity: 0.6 }));
+                line.position.copy(cube.position); // Position edges same as the cube
+                pieceMeshes.add(line);
+            });
+            console.log("Visualization updated with packed pieces.");
+        }
+
+        /**
+         * Handles window resize events to keep the visualization proportional.
+         */
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        /**
+         * The main animation loop called recursively via requestAnimationFrame.
+         * Renders the scene and updates controls.
+         */
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // Update controls (needed for damping)
+            renderer.render(scene, camera); // Render the scene
+        }
+
+        // --- 4. Example Usage ---
+
+        // Define the dimensions of the bin
+        const binDimensions = { width: 10, height: 10, depth: 10 };
+        // Create the Bin object
+        const theBin = new Bin(binDimensions.width, binDimensions.height, binDimensions.depth);
+
+        // Define a list of pieces to pack
+        const piecesToPack = [
+            new Piece(1, 4, 4, 4), // Large cube
+            new Piece(2, 3, 3, 3), // Medium cube
+            new Piece(3, 5, 2, 2), // Flat-ish
+            new Piece(4, 2, 5, 2), // Tall-ish
+            new Piece(5, 2, 2, 5), // Deep-ish
+            new Piece(6, 6, 1, 1), // Very flat
+            new Piece(7, 1, 6, 1), // Very tall
+            new Piece(8, 1, 1, 6), // Very deep
+            new Piece(9, 3, 4, 5), // Large irregular
+            new Piece(10, 5, 3, 4),// Large irregular
+            new Piece(11, 4, 5, 3),// Large irregular
+            new Piece(12, 2, 2, 2), // Small cube
+            new Piece(13, 2, 2, 2), // Small cube
+            new Piece(14, 1, 1, 1), // Unit cube
+            new Piece(15, 1, 1, 1), // Unit cube
+            new Piece(16, 1, 1, 1), // Unit cube
+            new Piece(17, 3, 1, 3),
+            new Piece(18, 1, 3, 3),
+            new Piece(19, 3, 3, 1),
+            new Piece(20, 4, 2, 3),
+        ];
+
+        // Run the packing algorithm
+        const finalPlacement = packBin(theBin, piecesToPack);
+
+        // Initialize the Three.js visualization environment
+        initVisualization();
+        // Visualize the result of the packing algorithm
+        visualizePacking(finalPlacement, theBin);
+
+    </script>
+</body>
+
+</html>

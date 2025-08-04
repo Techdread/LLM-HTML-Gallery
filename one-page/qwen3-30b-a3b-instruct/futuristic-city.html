@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Futuristic Cityscape - ThreeJS Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000;
+            color: #fff;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
+
+        #ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 300px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            backdrop-filter: blur(8px);
+        }
+
+        h2 {
+            margin-bottom: 12px;
+            font-size: 1.4em;
+            color: #0ff;
+            text-align: center;
+            border-bottom: 1px dashed #0ff;
+            padding-bottom: 8px;
+        }
+
+        .control-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.9em;
+            color: #ccc;
+        }
+
+        input[type="range"],
+        input[type="number"] {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: #333;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb,
+        input[type="number"]::-webkit-inner-spin-button {
+            appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #0ff;
+            cursor: pointer;
+        }
+
+        input[type="number"] {
+            background: #222;
+            border: 1px solid #444;
+            color: #fff;
+            padding: 6px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .info {
+            font-size: 0.8em;
+            color: #aaa;
+            margin-top: 8px;
+            text-align: center;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 0.85em;
+            color: #ccc;
+            max-width: 300px;
+            z-index: 100;
+            backdrop-filter: blur(6px);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-panel">
+        <h2>Futuristic City Simulator</h2>
+
+        <div class="control-group">
+            <label for="grid-size">Grid Size (x, z)</label>
+            <input type="range" id="grid-size" min="5" max="20" value="10" step="1" />
+            <span id="grid-size-val">10</span>
+        </div>
+
+        <div class="control-group">
+            <label for="city-size">City Size (Scale)</label>
+            <input type="range" id="city-size" min="1" max="5" value="2" step="0.1" />
+            <span id="city-size-val">2.0</span>
+        </div>
+
+        <div class="control-group">
+            <label for="vehicle-count">Flying Vehicles</label>
+            <input type="range" id="vehicle-count" min="1" max="50" value="10" step="1" />
+            <span id="vehicle-count-val">10</span>
+        </div>
+
+        <div class="info">
+            Use WASD + Mouse to move camera. Scroll to zoom.
+        </div>
+    </div>
+
+    <div id="instructions">
+        <strong>Controls:</strong><br>
+        WASD: Move<br>
+        Mouse: Look around<br>
+        Scroll: Zoom<br>
+        Adjust settings in the panel to customize the city.
+    </div>
+
+    <!-- ThreeJS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.157.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.157.0/examples/js/geometries/ParametricGeometries.js"></script>
+
+    <script>
+        // Main simulation variables
+        let scene, camera, renderer, controls;
+        let grid = 10, cityScale = 2.0, vehicleCount = 10;
+        let buildings = [];
+        let vehicles = [];
+        let sun, moon;
+        let clock = new THREE.Clock();
+        let time = 0;
+
+        // Initialize scene
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000814);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 30, 50);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 10;
+            controls.maxDistance = 100;
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 1);
+            scene.add(ambientLight);
+
+            sun = new THREE.DirectionalLight(0xffffff, 1);
+            sun.position.set(100, 100, 50);
+            sun.castShadow = true;
+            sun.shadow.mapSize.set(2048, 2048);
+            sun.shadow.camera.near = 0.5;
+            sun.shadow.camera.far = 500;
+            scene.add(sun);
+
+            moon = new THREE.DirectionalLight(0x88ccff, 0.3);
+            moon.position.set(-100, 100, -50);
+            scene.add(moon);
+
+            // Ground
+            const groundGeo = new THREE.PlaneGeometry(100, 100);
+            const groundMat = new THREE.MeshStandardMaterial({
+                color: 0x0a200a,
+                roughness: 0.8,
+                metalness: 0.1,
+                side: THREE.DoubleSide
+            });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -0.1;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Add terrain (beach, park)
+            createTerrain();
+
+            // Generate city
+            generateCity();
+
+            // Add UI event listeners
+            setupUI();
+
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+
+            // Start animation loop
+            animate();
+        }
+
+        function createTerrain() {
+            // Beach
+            const beachGeo = new THREE.PlaneGeometry(30, 30);
+            const beachMat = new THREE.MeshStandardMaterial({
+                color: 0xf0e4a0,
+                roughness: 0.6,
+                metalness: 0.1
+            });
+            const beach = new THREE.Mesh(beachGeo, beachMat);
+            beach.rotation.x = -Math.PI / 2;
+            beach.position.set(20, -0.05, 20);
+            beach.receiveShadow = true;
+            scene.add(beach);
+
+            // Park
+            const parkGeo = new THREE.PlaneGeometry(25, 25);
+            const parkMat = new THREE.MeshStandardMaterial({
+                color: 0x208020,
+                roughness: 0.7,
+                metalness: 0.05
+            });
+            const park = new THREE.Mesh(parkGeo, parkMat);
+            park.rotation.x = -Math.PI / 2;
+            park.position.set(-20, -0.05, -20);
+            park.receiveShadow = true;
+            scene.add(park);
+
+            // Add grass particles
+            const grassGeo = new THREE.BufferGeometry();
+            const grassCount = 1000;
+            const positions = new Float32Array(grassCount * 3);
+            for (let i = 0; i < grassCount; i++) {
+                const i3 = i * 3;
+                positions[i3] = (Math.random() - 0.5) * 50;
+                positions[i3 + 1] = -0.01;
+                positions[i3 + 2] = (Math.random() - 0.5) * 50;
+            }
+            grassGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const grassMat = new THREE.PointsMaterial({ color: 0x30a030, size: 0.3, sizeAttenuation: false });
+            const grass = new THREE.Points(grassGeo, grassMat);
+            scene.add(grass);
+        }
+
+        function generateCity() {
+            // Clear previous
+            buildings.forEach(b => scene.remove(b));
+            buildings = [];
+
+            const size = grid * cityScale;
+            const step = size / grid;
+
+            // Create buildings
+            for (let x = 0; x < grid; x++) {
+                for (let z = 0; z < grid; z++) {
+                    const posX = (x - grid / 2) * step;
+                    const posZ = (z - grid / 2) * step;
+
+                    const height = 5 + Math.random() * 30;
+                    const width = step * 0.8;
+                    const depth = step * 0.8;
+
+                    const building = createBuilding(posX, height, posZ, width, depth);
+                    scene.add(building);
+                    buildings.push(building);
+                }
+            }
+
+            // Create vehicle paths
+            createVehiclePaths();
+        }
+
+        function createBuilding(x, height, z, width, depth) {
+            const random = Math.random();
+            const color = random < 0.3 ? 0x2040a0 :
+                random < 0.6 ? 0x6020a0 :
+                    0x2080a0;
+
+            const geo = new THREE.BoxGeometry(width, height, depth);
+            const mat = new THREE.MeshStandardMaterial({
+                color: color,
+                roughness: 0.5,
+                metalness: 0.3
+            });
+            const building = new THREE.Mesh(geo, mat);
+            building.position.set(x, height / 2, z);
+            building.castShadow = true;
+            building.receiveShadow = true;
+
+            // Add windows
+            const windowWidth = width * 0.2;
+            const windowDepth = depth * 0.2;
+            const windowHeight = height * 0.1;
+            const windowCount = Math.floor(height / 10);
+
+            for (let i = 0; i < windowCount; i++) {
+                const windowY = height / 2 - height * 0.2 + i * (height * 0.2);
+                const windowX = (Math.random() - 0.5) * width * 0.8;
+                const windowZ = (Math.random() - 0.5) * depth * 0.8;
+
+                const windowGeo = new THREE.BoxGeometry(windowWidth, windowHeight, windowDepth);
+                const windowMat = new THREE.MeshStandardMaterial({
+                    color: 0x88ccff,
+                    roughness: 0.1,
+                    metalness: 0.5
+                });
+                const window = new THREE.Mesh(windowGeo, windowMat);
+                window.position.set(x + windowX, windowY, z + windowZ);
+                window.castShadow = true;
+                window.receiveShadow = true;
+                building.add(window);
+            }
+
+            return building;
+        }
+
+        function createVehiclePaths() {
+            // Clear old vehicles
+            vehicles.forEach(v => scene.remove(v.mesh));
+            vehicles = [];
+
+            const paths = [];
+            const totalPaths = vehicleCount;
+
+            for (let i = 0; i < totalPaths; i++) {
+                const start = new THREE.Vector3(
+                    Math.random() * 80 - 40,
+                    10 + Math.random() * 10,
+                    Math.random() * 80 - 40
+                );
+                const end = new THREE.Vector3(
+                    Math.random() * 80 - 40,
+                    10 + Math.random() * 10,
+                    Math.random() * 80 - 40
+                );
+
+                const path = {
+                    start,
+                    end,
+                    points: [],
+                    speed: 0.05 + Math.random() * 0.05,
+                    progress: 0,
+                    direction: 0
+                };
+
+                // Create a smooth path between start and end
+                const steps = 10;
+                for (let j = 0; j <= steps; j++) {
+                    const t = j / steps;
+                    const x = start.x + (end.x - start.x) * t;
+                    const y = start.y + (end.y - start.y) * t + Math.sin(t * Math.PI) * 2;
+                    const z = start.z + (end.z - start.z) * t;
+                    path.points.push(new THREE.Vector3(x, y, z));
+                }
+
+                paths.push(path);
+            }
+
+            // Create vehicle models
+            for (let i = 0; i < totalPaths; i++) {
+                const path = paths[i];
+                const vehicle = createVehicle(path);
+                vehicles.push({ mesh: vehicle, path });
+            }
+        }
+
+        function createVehicle(path) {
+            const geo = new THREE.ConeGeometry(0.5, 2, 8);
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0x00ff88,
+                roughness: 0.2,
+                metalness: 0.8
+            });
+            const body = new THREE.Mesh(geo, mat);
+            body.position.copy(path.start);
+            body.castShadow = true;
+            body.receiveShadow = true;
+
+            // Add lights
+            const light = new THREE.PointLight(0x00ffff, 1, 10);
+            light.position.set(0, 0, 1);
+            body.add(light);
+
+            // Add glow
+            const glow = new THREE.PointLight(0x00ffff, 0.5, 5);
+            glow.position.set(0, 0, -1);
+            body.add(glow);
+
+            // Add thrusters
+            const thrusterGeo = new THREE.ConeGeometry(0.3, 0.8, 6);
+            const thrusterMat = new THREE.MeshStandardMaterial({ color: 0xff5500 });
+            const thruster = new THREE.Mesh(thrusterGeo, thrusterMat);
+            thruster.position.set(0, -1, 0);
+            thruster.rotation.x = Math.PI;
+            body.add(thruster);
+
+            scene.add(body);
+            return body;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            time += clock.getDelta();
+            const hour = (time % (24 * 60 * 60)) / (60 * 60); // 0-24
+
+            // Day-night cycle
+            const sunAngle = (hour / 24) * Math.PI * 2;
+            sun.position.set(
+                Math.cos(sunAngle) * 100,
+                Math.sin(sunAngle) * 100,
+                Math.sin(sunAngle) * 50
+            );
+            moon.position.set(
+                -Math.cos(sunAngle) * 100,
+                Math.sin(sunAngle) * 100,
+                -Math.sin(sunAngle) * 50
+            );
+
+            // Update lighting
+            const intensity = Math.max(0.1, Math.sin(hour * Math.PI / 12));
+            sun.intensity = intensity;
+            moon.intensity = Math.max(0.05, 0.3 - intensity * 0.3);
+
+            // Update vehicles
+            vehicles.forEach(v => {
+                const path = v.path;
+                const speed = path.speed;
+                path.progress += speed;
+
+                if (path.progress >= path.points.length - 1) {
+                    path.progress = 0;
+                }
+
+                const i = Math.floor(path.progress);
+                const t = path.progress - i;
+                const p1 = path.points[i];
+                const p2 = path.points[i + 1];
+
+                const newPos = new THREE.Vector3().lerpVectors(p1, p2, t);
+                v.mesh.position.copy(newPos);
+
+                // Rotate to face direction
+                const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+                v.mesh.quaternion.lookAt(newPos.clone().add(dir));
+            });
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function setupUI() {
+            const gridSizeInput = document.getElementById('grid-size');
+            const gridSizeVal = document.getElementById('grid-size-val');
+            const citySizeInput = document.getElementById('city-size');
+            const citySizeVal = document.getElementById('city-size-val');
+            const vehicleCountInput = document.getElementById('vehicle-count');
+            const vehicleCountVal = document.getElementById('vehicle-count-val');
+
+            gridSizeInput.addEventListener('input', () => {
+                grid = parseInt(gridSizeInput.value);
+                gridSizeVal.textContent = grid;
+                generateCity();
+            });
+
+            citySizeInput.addEventListener('input', () => {
+                cityScale = parseFloat(citySizeInput.value);
+                citySizeVal.textContent = cityScale.toFixed(1);
+                generateCity();
+            });
+
+            vehicleCountInput.addEventListener('input', () => {
+                vehicleCount = parseInt(vehicleCountInput.value);
+                vehicleCountVal.textContent = vehicleCount;
+                createVehiclePaths();
+            });
+        }
+
+        // Start the simulation
+        init();
+    </script>
+
+</body>
+
+</html>

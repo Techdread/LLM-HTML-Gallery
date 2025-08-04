@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Futuristic Cityscape Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui-controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(20, 20, 30, 0.85);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+        }
+
+        #ui-controls h3 {
+            margin-top: 0;
+            color: #00ffff;
+            text-align: center;
+            border-bottom: 1px solid #00ffff;
+            padding-bottom: 5px;
+        }
+
+        #ui-controls div {
+            margin-bottom: 10px;
+        }
+
+        #ui-controls label {
+            display: inline-block;
+            width: 150px;
+            color: #ccc;
+        }
+
+        #ui-controls input[type="number"] {
+            width: 60px;
+            background-color: #111;
+            color: #0f0;
+            border: 1px solid #00ffff;
+            border-radius: 3px;
+            padding: 3px;
+        }
+
+        #ui-controls button {
+            display: block;
+            width: 100%;
+            padding: 8px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        #ui-controls button:hover {
+            background-color: #0056b3;
+        }
+
+        #timeDisplay {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #0f0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui-controls">
+        <h3>City Controls</h3>
+        <div>
+            <label for="gridSizeInput">Grid Size (N x N):</label>
+            <input type="number" id="gridSizeInput" value="12" min="5" max="25" step="1">
+        </div>
+        <div>
+            <label for="cityScaleInput">Max Building Height:</label>
+            <input type="number" id="cityScaleInput" value="30" min="10" max="60" step="1">
+        </div>
+        <div>
+            <label for="vehicleCountInput">Vehicle Count:</label>
+            <input type="number" id="vehicleCountInput" value="25" min="0" max="100" step="1">
+        </div>
+        <div>
+            <label for="buildingDensityInput">Building Density:</label>
+            <input type="range" id="buildingDensityInput" value="60" min="0" max="90" step="1">
+        </div>
+        <div>
+            <label for="peopleCountInput">People Count:</label>
+            <input type="number" id="peopleCountInput" value="50" min="0" max="200" step="1">
+        </div>
+        <button id="regenerateButton">Regenerate City</button>
+        <div id="timeDisplay">Time: 00:00</div>
+    </div>
+
+    <!-- Import map for three.js and its addons -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+      }
+    }
+  </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls;
+        const clock = new THREE.Clock();
+
+        const config = {
+            gridSize: 12,
+            cityScale: 30, // Max additional building height
+            vehicleCount: 25,
+            peopleCount: 50,
+            buildingDensity: 60, // Percentage
+            cellSize: 8,
+            dayDuration: 240, // seconds for a full 24h cycle (4 minutes)
+            maxBuildingSegments: 4,
+            buildingBaseMinHeight: 3,
+            buildingSegmentMinHeight: 2,
+        };
+
+        let cityGroup = new THREE.Group();
+        let vehicleGroup = new THREE.Group();
+        let peopleGroup = new THREE.Group();
+        let sewerGroup = new THREE.Group();
+        let streetLightMeshes = []; // For emissive meshes
+        let streetLightSources = []; // For actual lights
+
+        let sunLight, ambientLight;
+        let timeOfDay = 0.25; // 0 (midnight) to 1 (next midnight), start at sunrise (6 AM)
+
+        const vehicles = [];
+        const vehiclePaths = [];
+        const people = [];
+        const peoplePaths = [];
+
+        // Building materials
+        const buildingMaterials = [
+            new THREE.MeshStandardMaterial({ color: 0x606070, roughness: 0.7, metalness: 0.3 }),
+            new THREE.MeshStandardMaterial({ color: 0x707080, roughness: 0.6, metalness: 0.4 }),
+            new THREE.MeshStandardMaterial({ color: 0x505060, roughness: 0.8, metalness: 0.2 }),
+        ];
+        const windowMaterial = new THREE.MeshStandardMaterial({ emissive: 0x000000, emissiveIntensity: 1, color: 0x111122 }); // Emissive turns on at night
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000); // Initial background
+            scene.fog = new THREE.Fog(0x050515, 50, 400);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+            document.body.appendChild(renderer.domElement);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 20;
+            controls.maxDistance = 600;
+
+            setupLights();
+
+            // Initial city generation based on default config
+            document.getElementById('gridSizeInput').value = config.gridSize;
+            document.getElementById('cityScaleInput').value = config.cityScale;
+            document.getElementById('vehicleCountInput').value = config.vehicleCount;
+            document.getElementById('buildingDensityInput').value = config.buildingDensity;
+            document.getElementById('peopleCountInput').value = config.peopleCount;
+
+            regenerateWorld();
+
+            setupUI();
+
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function setupLights() {
+            ambientLight = new THREE.AmbientLight(0x404050, 0.5); // Soft ambient light
+            scene.add(ambientLight);
+
+            sunLight = new THREE.DirectionalLight(0xffffff, 1);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 500; // Adjust based on city size
+            scene.add(sunLight);
+            scene.add(sunLight.target); // Target for directional light
+        }
+
+        function updateCameraAndControls() {
+            const cityDimension = config.gridSize * config.cellSize;
+            camera.position.set(cityDimension * 0.7, cityDimension * 0.5, cityDimension * 0.9);
+            controls.target.set(cityDimension * 0.2, 0, cityDimension * 0.2); // Look towards city center
+            controls.maxDistance = cityDimension * 2;
+            sunLight.shadow.camera.far = cityDimension * 2.5;
+            const shadowCamSize = cityDimension * 0.75;
+            sunLight.shadow.camera.left = -shadowCamSize;
+            sunLight.shadow.camera.right = shadowCamSize;
+            sunLight.shadow.camera.top = shadowCamSize;
+            sunLight.shadow.camera.bottom = -shadowCamSize;
+            sunLight.shadow.camera.updateProjectionMatrix();
+            scene.fog.near = cityDimension * 0.2;
+            scene.fog.far = cityDimension * 2;
+        }
+
+        function clearSceneGroup(group) {
+            while (group.children.length > 0) {
+                const child = group.children[0];
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+                group.remove(child);
+            }
+        }
+
+        function cleanupCity() {
+            clearSceneGroup(cityGroup);
+            clearSceneGroup(vehicleGroup);
+            clearSceneGroup(peopleGroup);
+            clearSceneGroup(sewerGroup);
+
+            streetLightMeshes.forEach(mesh => {
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) mesh.material.dispose();
+            });
+            streetLightMeshes = [];
+
+            streetLightSources.forEach(light => {
+                scene.remove(light); // If they were added to scene directly
+                light.dispose();
+            });
+            streetLightSources = [];
+
+            vehicles.length = 0;
+            vehiclePaths.length = 0;
+            people.length = 0;
+            peoplePaths.length = 0;
+        }
+
+        function regenerateWorld() {
+            cleanupCity();
+
+            scene.remove(cityGroup);
+            cityGroup = new THREE.Group();
+            scene.add(cityGroup);
+
+            scene.remove(vehicleGroup);
+            vehicleGroup = new THREE.Group();
+            scene.add(vehicleGroup);
+
+            scene.remove(peopleGroup);
+            peopleGroup = new THREE.Group();
+            scene.add(peopleGroup);
+
+            scene.remove(sewerGroup);
+            sewerGroup = new THREE.Group();
+            scene.add(sewerGroup);
+
+            updateCameraAndControls();
+            createCity();
+            createSewerSystem();
+            createVehiclePaths();
+            spawnVehicles();
+            createPeoplePaths();
+            spawnPeople();
+        }
+
+
+        function createCity() {
+            const groundSize = config.gridSize * config.cellSize;
+            const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+            const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x303030, roughness: 0.9 });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            cityGroup.add(ground);
+
+            // Create water plane (optional, can be part of grid logic)
+            const waterSize = groundSize * 1.5; // Larger than ground
+            const waterGeometry = new THREE.PlaneGeometry(waterSize, waterSize);
+            const waterMaterial = new THREE.MeshStandardMaterial({
+                color: 0x003060,
+                transparent: true,
+                opacity: 0.7,
+                roughness: 0.2,
+                metalness: 0.1
+            });
+            const water = new THREE.Mesh(waterGeometry, waterMaterial);
+            water.rotation.x = -Math.PI / 2;
+            water.position.y = -0.5; // Slightly below ground
+            cityGroup.add(water);
+
+
+            for (let i = 0; i < config.gridSize; i++) {
+                for (let j = 0; j < config.gridSize; j++) {
+                    const x = (i - config.gridSize / 2 + 0.5) * config.cellSize;
+                    const z = (j - config.gridSize / 2 + 0.5) * config.cellSize;
+                    const rand = Math.random() * 100;
+
+                    if (rand < 5) { // Park
+                        createPark(x, z);
+                    } else if (rand < 10) { // Beach-like area (sandy color)
+                        createRecreationalArea(x, z, new THREE.Color(0xC2B280)); // Sandy color
+                    } else if (rand < 10 + config.buildingDensity) { // Building
+                        createBuilding(x, z);
+                    }
+                    // Else: empty space / road
+                }
+            }
+            // After creating the grid, define paths for people
+            createPeoplePaths();
+        }
+
+        function createPark(x, z) {
+            const parkSize = config.cellSize * 0.8;
+            const parkGeo = new THREE.PlaneGeometry(parkSize, parkSize);
+            const parkMat = new THREE.MeshStandardMaterial({ color: 0x33691E, roughness: 1 }); // Dark green
+            const parkMesh = new THREE.Mesh(parkGeo, parkMat);
+            parkMesh.rotation.x = -Math.PI / 2;
+            parkMesh.position.set(x, 0.01, z);
+            parkMesh.receiveShadow = true;
+            cityGroup.add(parkMesh);
+
+            // Add some simple "trees"
+            for (let k = 0; k < 3; k++) {
+                const treeRadius = config.cellSize * 0.05 + Math.random() * config.cellSize * 0.05;
+                const treeHeight = config.cellSize * 0.2 + Math.random() * config.cellSize * 0.2;
+
+                const trunkGeo = new THREE.CylinderGeometry(treeRadius * 0.3, treeRadius * 0.4, treeHeight, 8);
+                const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4A3B31 });
+                const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                trunk.castShadow = true;
+                trunk.position.set(
+                    x + (Math.random() - 0.5) * parkSize * 0.7,
+                    treeHeight / 2,
+                    z + (Math.random() - 0.5) * parkSize * 0.7
+                );
+                cityGroup.add(trunk);
+
+                const foliageGeo = new THREE.SphereGeometry(treeRadius, 8, 6);
+                const foliageMat = new THREE.MeshStandardMaterial({ color: 0x2E7D32 });
+                const foliage = new THREE.Mesh(foliageGeo, foliageMat);
+                foliage.castShadow = true;
+                foliage.position.set(trunk.position.x, treeHeight + treeRadius * 0.8, trunk.position.z);
+                cityGroup.add(foliage);
+            }
+        }
+
+        function createRecreationalArea(x, z, color) {
+            const areaSize = config.cellSize * 0.9;
+            const areaGeo = new THREE.PlaneGeometry(areaSize, areaSize);
+            const areaMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.9 });
+            const areaMesh = new THREE.Mesh(areaGeo, areaMat);
+            areaMesh.rotation.x = -Math.PI / 2;
+            areaMesh.position.set(x, 0.01, z);
+            areaMesh.receiveShadow = true;
+            cityGroup.add(areaMesh);
+        }
+
+        function createSewerSystem() {
+            const sewerY = -5; // How far below ground
+            const pipeRadius = 0.5;
+            const mainPipeMaterial = new THREE.MeshStandardMaterial({ color: 0x404040, roughness: 0.8, metalness: 0.5 });
+            const groundSize = config.gridSize * config.cellSize;
+
+            // Create a grid of pipes along the cell edges
+            for (let i = 0; i <= config.gridSize; i++) {
+                const pos = (i - config.gridSize / 2) * config.cellSize;
+
+                // Pipes along Z-axis (like vertical lines on the grid)
+                const pipeGeoZ = new THREE.CylinderGeometry(pipeRadius, pipeRadius, groundSize, 8);
+                const pipeZ = new THREE.Mesh(pipeGeoZ, mainPipeMaterial);
+                pipeZ.rotation.x = Math.PI / 2;
+                pipeZ.position.set(pos - config.cellSize / 2, sewerY, 0);
+                sewerGroup.add(pipeZ);
+
+                // Pipes along X-axis (like horizontal lines on the grid)
+                const pipeGeoX = new THREE.CylinderGeometry(pipeRadius, pipeRadius, groundSize, 8);
+                const pipeX = new THREE.Mesh(pipeGeoX, mainPipeMaterial);
+                pipeX.rotation.z = Math.PI / 2;
+                pipeX.position.set(0, sewerY, pos - config.cellSize / 2);
+                sewerGroup.add(pipeX);
+            }
+
+            // Create two sewer stations
+            const stationSize = config.cellSize * 0.75;
+            const stationHeight = 4;
+            const stationGeo = new THREE.CylinderGeometry(stationSize, stationSize, stationHeight, 16);
+            const stationMat = new THREE.MeshStandardMaterial({ color: 0x506050, roughness: 0.9 });
+
+            const station1 = new THREE.Mesh(stationGeo, stationMat);
+            // Position at a grid intersection corner
+            const station1X = (0 - config.gridSize / 2) * config.cellSize - config.cellSize / 2;
+            const station1Z = (0 - config.gridSize / 2) * config.cellSize - config.cellSize / 2;
+            station1.position.set(station1X, sewerY - stationHeight / 2, station1Z);
+            sewerGroup.add(station1);
+
+            const station2 = new THREE.Mesh(stationGeo, stationMat.clone());
+            // Position at the opposite corner
+            const station2X = (config.gridSize - config.gridSize / 2) * config.cellSize - config.cellSize / 2;
+            const station2Z = (config.gridSize - config.gridSize / 2) * config.cellSize - config.cellSize / 2;
+            station2.position.set(station2X, sewerY - stationHeight / 2, station2Z);
+            sewerGroup.add(station2);
+        }
+
+
+        function createBuilding(x, z) {
+            const building = new THREE.Group();
+            let currentHeight = 0;
+            const numSegments = 1 + Math.floor(Math.random() * config.maxBuildingSegments);
+            let baseWidth = config.cellSize * (0.5 + Math.random() * 0.4);
+            let baseDepth = config.cellSize * (0.5 + Math.random() * 0.4);
+
+            for (let i = 0; i < numSegments; i++) {
+                const segmentHeight = config.buildingSegmentMinHeight + Math.random() * (config.cityScale / numSegments);
+                const segmentWidth = baseWidth * (1 - i * 0.15); // Tapering
+                const segmentDepth = baseDepth * (1 - i * 0.15);
+
+                if (segmentWidth < 1 || segmentDepth < 1) break;
+
+                const segmentGeo = new THREE.BoxGeometry(segmentWidth, segmentHeight, segmentDepth);
+                const material = buildingMaterials[Math.floor(Math.random() * buildingMaterials.length)];
+                const segmentMesh = new THREE.Mesh(segmentGeo, material.clone()); // Clone material for potential window modification
+
+                segmentMesh.castShadow = true;
+                segmentMesh.receiveShadow = true;
+                segmentMesh.position.y = currentHeight + segmentHeight / 2;
+                building.add(segmentMesh);
+
+                // Add "windows" - simple emissive planes that light up at night
+                if (Math.random() < 0.7) { // 70% chance of windows on a segment
+                    const windowRows = Math.floor(segmentHeight / 1.5);
+                    const windowCols = Math.floor(segmentWidth / 1.5);
+                    const windowDepth = 0.1;
+                    const windowPlaneGeo = new THREE.PlaneGeometry(0.8, 0.8); // Small window
+
+                    for (let face = 0; face < 4; face++) { // 4 sides
+                        for (let r = 0; r < windowRows; r++) {
+                            for (let c = 0; c < windowCols; c++) {
+                                const windowMesh = new THREE.Mesh(windowPlaneGeo, windowMaterial);
+                                const pos = {
+                                    x: (c - (windowCols - 1) / 2) * 1.5,
+                                    y: (r - (windowRows - 1) / 2) * 1.5
+                                };
+
+                                if (face === 0) windowMesh.position.set(pos.x, pos.y, segmentDepth / 2 + windowDepth);
+                                else if (face === 1) windowMesh.position.set(pos.x, pos.y, -segmentDepth / 2 - windowDepth);
+                                else if (face === 2) {
+                                    windowMesh.position.set(segmentWidth / 2 + windowDepth, pos.y, pos.x);
+                                    windowMesh.rotation.y = Math.PI / 2;
+                                } else {
+                                    windowMesh.position.set(-segmentWidth / 2 - windowDepth, pos.y, pos.x);
+                                    windowMesh.rotation.y = -Math.PI / 2;
+                                }
+
+                                segmentMesh.add(windowMesh);
+                            }
+                        }
+                    }
+                }
+                currentHeight += segmentHeight;
+            }
+
+            building.position.set(x, 0, z);
+            cityGroup.add(building);
+
+            // Add sewer connection pipe
+            const sewerY = -5;
+            const connectionPipeRadius = 0.3;
+            const connectionPipeHeight = Math.abs(sewerY);
+            const connectionPipeGeo = new THREE.CylinderGeometry(connectionPipeRadius, connectionPipeRadius, connectionPipeHeight, 8);
+            const connectionPipeMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.8 });
+            const connectionPipe = new THREE.Mesh(connectionPipeGeo, connectionPipeMat);
+            connectionPipe.position.set(x, -connectionPipeHeight / 2, z);
+            sewerGroup.add(connectionPipe);
+
+            // Add streetlight if building is not too tall
+            if (currentHeight < config.cityScale * 0.4 && Math.random() < 0.3) {
+                createStreetLight(x, z, currentHeight + 2);
+            }
+        }
+
+        function createStreetLight(x, z, height) {
+            const poleGeo = new THREE.CylinderGeometry(0.1, 0.1, height, 8);
+            const poleMat = new THREE.MeshStandardMaterial({ color: 0x444444 });
+            const pole = new THREE.Mesh(poleGeo, poleMat);
+            pole.position.set(x, height / 2, z);
+            pole.castShadow = true;
+            cityGroup.add(pole);
+
+            const lightBulbGeo = new THREE.SphereGeometry(0.3, 8, 8);
+            const lightBulbMat = new THREE.MeshStandardMaterial({ emissive: 0xffff00, emissiveIntensity: 0, color: 0xffff00 }); // Emissive off initially
+            const lightBulbMesh = new THREE.Mesh(lightBulbGeo, lightBulbMat);
+            lightBulbMesh.position.set(x, height + 0.3, z);
+            cityGroup.add(lightBulbMesh);
+            streetLightMeshes.push(lightBulbMesh);
+
+            const pointLight = new THREE.PointLight(0xffffaa, 0, 20, 1); // Intensity 0 initially, decay 1
+            pointLight.position.set(x, height + 0.5, z);
+            pointLight.castShadow = false; // Performance: streetlights don't cast shadows
+            cityGroup.add(pointLight);
+            streetLightSources.push(pointLight);
+        }
+
+
+        function createVehicleModel() {
+            const group = new THREE.Group();
+            const bodyMat = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff, metalness: 0.6, roughness: 0.4 });
+            const bodyGeo = new THREE.BoxGeometry(2.5, 0.6, 1.2);
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.castShadow = true;
+            group.add(body);
+
+            const cockpitGeo = new THREE.BoxGeometry(0.8, 0.4, 0.7);
+            const cockpitMat = new THREE.MeshStandardMaterial({ color: 0x3333dd, transparent: true, opacity: 0.6 });
+            const cockpit = new THREE.Mesh(cockpitGeo, cockpitMat);
+            cockpit.position.set(0.5, 0.3, 0);
+            body.add(cockpit);
+
+            // Headlights
+            const headlightMat = new THREE.MeshStandardMaterial({ emissive: 0xffffff, color: 0xffffff, emissiveIntensity: 0 });
+            const headlightGeo = new THREE.SphereGeometry(0.15, 8, 8);
+            const headlightL = new THREE.Mesh(headlightGeo, headlightMat);
+            headlightL.position.set(1.25, 0, 0.4);
+            body.add(headlightL);
+            const headlightR = new THREE.Mesh(headlightGeo, headlightMat);
+            headlightR.position.set(1.25, 0, -0.4);
+            body.add(headlightR);
+            group.userData.headlights = [headlightL, headlightR];
+
+
+            // Taillights
+            const taillightMat = new THREE.MeshStandardMaterial({ emissive: 0xff0000, color: 0xff0000, emissiveIntensity: 0 });
+            const taillightGeo = new THREE.BoxGeometry(0.1, 0.2, 0.4);
+            const taillightL = new THREE.Mesh(taillightGeo, taillightMat);
+            taillightL.position.set(-1.25, 0, 0.3);
+            body.add(taillightL);
+            const taillightR = new THREE.Mesh(taillightGeo, taillightMat);
+            taillightR.position.set(-1.25, 0, -0.3);
+            body.add(taillightR);
+            group.userData.taillights = [taillightL, taillightR];
+
+            return group;
+        }
+
+        function createVehiclePaths() {
+            const numPaths = Math.max(5, Math.floor(config.vehicleCount / 3));
+            const cityWidth = config.gridSize * config.cellSize;
+            const minHeight = config.cityScale + 10; // Above highest possible building segment
+            const maxHeight = minHeight + 30;
+
+            for (let i = 0; i < numPaths; i++) {
+                const points = [];
+                const numPoints = 5 + Math.floor(Math.random() * 5);
+                for (let j = 0; j < numPoints; j++) {
+                    points.push(new THREE.Vector3(
+                        (Math.random() - 0.5) * cityWidth * 1.2, // Slightly outside grid
+                        minHeight + Math.random() * (maxHeight - minHeight),
+                        (Math.random() - 0.5) * cityWidth * 1.2
+                    ));
+                }
+                points.push(points[0]); // Close the loop
+                const curve = new THREE.CatmullRomCurve3(points);
+                curve.curveType = 'catmullrom';
+                curve.tension = 0.5;
+                vehiclePaths.push(curve);
+
+                // Optional: visualize paths
+                // const lineGeo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(50));
+                // const lineMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
+                // const curveObject = new THREE.Line(lineGeo, lineMat);
+                // cityGroup.add(curveObject);
+            }
+        }
+
+        function spawnVehicles() {
+            if (vehiclePaths.length === 0) return;
+            for (let i = 0; i < config.vehicleCount; i++) {
+                const model = createVehicleModel();
+                const path = vehiclePaths[Math.floor(Math.random() * vehiclePaths.length)];
+                const speed = 0.01 + Math.random() * 0.02; // Speed as fraction of path per second
+                const progress = Math.random(); // Start at random point on path
+
+                vehicles.push({ model, path, speed, progress });
+                vehicleGroup.add(model);
+            }
+        }
+
+        function updateVehicles(delta) {
+            vehicles.forEach(v => {
+                v.progress = (v.progress + v.speed * delta) % 1;
+                const position = v.path.getPointAt(v.progress);
+                v.model.position.copy(position);
+
+                const tangent = v.path.getTangentAt(v.progress).normalize();
+                const nextPosition = v.path.getPointAt((v.progress + 0.001) % 1); // Look slightly ahead
+                v.model.lookAt(nextPosition);
+            });
+        }
+
+        function createPersonModel() {
+            const personHeight = 1.8;
+            const group = new THREE.Group();
+
+            // Body
+            const bodyGeo = new THREE.CylinderGeometry(0.2, 0.15, personHeight * 0.5, 8);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff, roughness: 0.8 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = personHeight * 0.45;
+            body.castShadow = true;
+            group.add(body);
+
+            // Head
+            const headGeo = new THREE.SphereGeometry(0.2, 16, 16);
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xffdbac, roughness: 0.7 });
+            const head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = personHeight * 0.85;
+            head.castShadow = true;
+            group.add(head);
+
+            group.userData.mixer = null; // To store animation mixer
+
+            return group;
+        }
+
+        function createPeoplePaths() {
+            const cityWidth = config.gridSize * config.cellSize;
+            const halfWidth = cityWidth / 2;
+
+            // Create paths along the grid lines (sidewalks)
+            for (let i = 0; i <= config.gridSize; i++) {
+                const x = (i - config.gridSize / 2) * config.cellSize;
+                // Horizontal path
+                let pointsH = [new THREE.Vector3(x, 0.1, -halfWidth), new THREE.Vector3(x, 0.1, halfWidth)];
+                peoplePaths.push(new THREE.LineCurve3(pointsH[0], pointsH[1]));
+
+                // Vertical path
+                let pointsV = [new THREE.Vector3(-halfWidth, 0.1, x), new THREE.Vector3(halfWidth, 0.1, x)];
+                peoplePaths.push(new THREE.LineCurve3(pointsV[0], pointsV[1]));
+            }
+        }
+
+        function spawnPeople() {
+            if (peoplePaths.length === 0) return;
+
+            for (let i = 0; i < config.peopleCount; i++) {
+                const model = createPersonModel();
+                const path = peoplePaths[Math.floor(Math.random() * peoplePaths.length)];
+                const speed = 0.5 + Math.random() * 0.5; // Units per second
+                const progress = Math.random(); // Start at random point
+                const direction = Math.random() < 0.5 ? 1 : -1; // Walk in either direction
+
+                people.push({ model, path, speed, progress, direction });
+                peopleGroup.add(model);
+            }
+        }
+
+        function updatePeople(delta) {
+            people.forEach(p => {
+                const pathLength = p.path.getLength();
+                let distance = p.speed * delta;
+
+                p.progress += (distance / pathLength) * p.direction;
+
+                if (p.progress > 1 || p.progress < 0) {
+                    // Reverse direction or pick a new path
+                    p.direction *= -1;
+                    p.progress = THREE.MathUtils.clamp(p.progress, 0, 1);
+
+                    // Optional: 20% chance to switch to an intersecting path
+                    if (Math.random() < 0.2) {
+                        const newPath = peoplePaths[Math.floor(Math.random() * peoplePaths.length)];
+                        p.path = newPath;
+                        p.progress = Math.random(); // Start at a random spot on the new path
+                    }
+                }
+
+                const position = p.path.getPointAt(p.progress);
+                p.model.position.copy(position);
+
+                // Make them look where they are going
+                const nextProgress = THREE.MathUtils.clamp(p.progress + 0.01 * p.direction, 0, 1);
+                const nextPosition = p.path.getPointAt(nextProgress);
+                p.model.lookAt(nextPosition.x, 0.1, nextPosition.z);
+
+                // Simple walking animation
+                const time = clock.getElapsedTime();
+                p.model.children[0].position.y = 0.9 + Math.sin(time * p.speed * 5) * 0.05; // Bobbing body
+            });
+        }
+
+        function updateDayNightCycle(delta) {
+            timeOfDay = (timeOfDay + delta / config.dayDuration) % 1;
+
+            const hours = Math.floor(timeOfDay * 24);
+            const minutes = Math.floor((timeOfDay * 24 * 60) % 60);
+            document.getElementById('timeDisplay').textContent = `Time: ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+            // Sun position (simple circular path)
+            const sunAngle = timeOfDay * Math.PI * 2 - Math.PI / 2; // Offset to have noon at top
+            const cityCenter = config.gridSize * config.cellSize / 2;
+            sunLight.position.set(
+                cityCenter + Math.cos(sunAngle) * cityCenter * 2,
+                Math.sin(sunAngle) * cityCenter * 1.5, // Sun height
+                cityCenter + Math.sin(sunAngle) * cityCenter * 0.5 // Some Z variation
+            );
+            sunLight.target.position.set(cityCenter * 0.5, 0, cityCenter * 0.5); // Target center of city
+
+            // Light intensity and color
+            let sunIntensity, ambientIntensityFactor;
+            let skyColor = new THREE.Color();
+            let fogColor = new THREE.Color();
+            let windowEmissive = 0x000000;
+            let vehicleLightIntensity = 0;
+            let streetLightIntensity = 0;
+            let streetLightSourceIntensity = 0;
+
+            if (timeOfDay > 0.23 && timeOfDay < 0.27) { // Sunrise (5:30 - 6:30 AM)
+                const t = (timeOfDay - 0.23) / 0.04; // Normalize 0-1
+                sunIntensity = THREE.MathUtils.lerp(0.0, 1.2, t);
+                ambientIntensityFactor = THREE.MathUtils.lerp(0.3, 0.6, t);
+                skyColor.lerpColors(new THREE.Color(0x101020), new THREE.Color(0xffa500), t); // Dark blue to orange
+                fogColor.lerpColors(new THREE.Color(0x050510), new THREE.Color(0x886644), t);
+                vehicleLightIntensity = THREE.MathUtils.lerp(1, 0.5, t);
+                streetLightIntensity = THREE.MathUtils.lerp(2, 0.5, t);
+                streetLightSourceIntensity = THREE.MathUtils.lerp(1, 0.2, t);
+            } else if (timeOfDay >= 0.27 && timeOfDay < 0.73) { // Daytime (6:30 AM - 5:30 PM)
+                sunIntensity = 1.2;
+                ambientIntensityFactor = 0.6;
+                skyColor.set(0x87CEEB); // Sky blue
+                fogColor.set(0xaaaaee);
+                windowEmissive = 0x000000;
+                vehicleLightIntensity = 0;
+                streetLightIntensity = 0;
+                streetLightSourceIntensity = 0;
+            } else if (timeOfDay >= 0.73 && timeOfDay < 0.77) { // Sunset (5:30 PM - 6:30 PM)
+                const t = (timeOfDay - 0.73) / 0.04; // Normalize 0-1
+                sunIntensity = THREE.MathUtils.lerp(1.2, 0.0, t);
+                ambientIntensityFactor = THREE.MathUtils.lerp(0.6, 0.3, t);
+                skyColor.lerpColors(new THREE.Color(0xffa500), new THREE.Color(0x101020), t); // Orange to dark blue
+                fogColor.lerpColors(new THREE.Color(0x886644), new THREE.Color(0x050510), t);
+                windowEmissive = new THREE.Color(0xffffaa).multiplyScalar(t * 0.5).getHex();
+                vehicleLightIntensity = THREE.MathUtils.lerp(0.5, 1, t);
+                streetLightIntensity = THREE.MathUtils.lerp(0.5, 2, t);
+                streetLightSourceIntensity = THREE.MathUtils.lerp(0.2, 1, t);
+            } else { // Nighttime
+                sunIntensity = 0.0;
+                ambientIntensityFactor = 0.2; // Darker ambient for night
+                skyColor.set(0x050515); // Very dark blue
+                fogColor.set(0x020205);
+                windowEmissive = 0xffffaa; // Bright windows
+                vehicleLightIntensity = 1;
+                streetLightIntensity = 2;
+                streetLightSourceIntensity = 1;
+            }
+
+            sunLight.intensity = sunIntensity;
+            ambientLight.intensity = ambientIntensityFactor;
+            scene.background.copy(skyColor);
+            scene.fog.color.copy(fogColor);
+
+            // Update window emissive material
+            windowMaterial.emissive.setHex(windowEmissive);
+            windowMaterial.emissiveIntensity = (windowEmissive === 0x000000) ? 0 : 1;
+
+
+            // Update vehicle lights
+            vehicles.forEach(v => {
+                v.model.userData.headlights.forEach(light => light.material.emissiveIntensity = vehicleLightIntensity);
+                v.model.userData.taillights.forEach(light => light.material.emissiveIntensity = vehicleLightIntensity);
+            });
+
+            // Update street lights
+            streetLightMeshes.forEach(mesh => mesh.material.emissiveIntensity = streetLightIntensity);
+            streetLightSources.forEach(light => light.intensity = streetLightSourceIntensity);
+        }
+
+        function setupUI() {
+            document.getElementById('regenerateButton').addEventListener('click', () => {
+                config.gridSize = parseInt(document.getElementById('gridSizeInput').value);
+                config.cityScale = parseInt(document.getElementById('cityScaleInput').value);
+                config.vehicleCount = parseInt(document.getElementById('vehicleCountInput').value);
+                config.buildingDensity = parseInt(document.getElementById('buildingDensityInput').value);
+                config.peopleCount = parseInt(document.getElementById('peopleCountInput').value);
+                regenerateWorld();
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            updateDayNightCycle(delta);
+            updateVehicles(delta);
+            updatePeople(delta);
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+
+</html>

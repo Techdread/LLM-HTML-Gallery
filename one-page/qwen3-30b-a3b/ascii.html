@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ASCII Sphere</title>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.6.0/lib/p5.min.js"></script>
+</head>
+<body>
+<script>
+let points = [];
+
+function setup() {
+  createCanvas(400, 400, WEBGL);
+  camera(0, 0, -100, 0, 0, 0, 0, 1, 0);
+
+  for (let i = 0; i < 500; i++) {
+    let theta = random(TWO_PI);
+    let phi = random(PI);
+    let x = sin(phi) * cos(theta);
+    let y = sin(phi) * sin(theta);
+    let z = cos(phi);
+    points.push({x: x * 30, y: y * 30, z: z * 30});
+  }
+}
+
+function draw() {
+  background(0);
+  let angle = frameCount * 0.01;
+
+  for (let point of points) {
+    let rotatedX = point.x * cos(angle) - point.z * sin(angle);
+    let rotatedZ = point.x * sin(angle) + point.z * cos(angle);
+    let brightness = map(rotatedZ, -30, 30, 255, 0);
+
+    fill(brightness);
+    push();
+    translate(rotatedX, point.y, rotatedZ);
+    textSize(10);
+    textAlign(CENTER, CENTER);
+    text('5', 0, 0);
+    pop();
+  }
+}
+</script>
+</body>
+</html>

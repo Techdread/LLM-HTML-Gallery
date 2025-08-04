@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3D Container Visualization</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+        }
+        .control-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+    <!-- Import Map for ES Modules -->
+    <script type="importmap">
+        {
+          "imports": {
+            "three": "https://cdn.skypack.dev/three@0.128.0",
+            "three/addons/": "https://cdn.skypack.dev/three@0.128.0/examples/jsm/"
+          }
+        }
+    </script>
+</head>
+<body>
+    <div id="info">Select a box to see details</div>
+    <div class="control-panel">
+        <button id="toggleVisibility">Toggle Selected Visibility</button>
+    </div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls;
+        let container, boxes = [];
+        let selectedBox = null;
+        const containerSize = { width: 1200, height: 1000, depth: 1200 };
+
+        class BoxGenerator {
+            constructor() {
+                this.usedDimensions = new Set();
+                this.currentPosition = { x: 0, y: 0, z: 0 };
+            }
+
+            generateUniqueDimensions() {
+                let dimensions;
+                do {
+                    dimensions = {
+                        w: Math.floor(Math.random() * 200) + 50,
+                        h: Math.floor(Math.random() * 150) + 50,
+                        d: Math.floor(Math.random() * 200) + 50
+                    };
+                } while (this.usedDimensions.has(`${dimensions.w},${dimensions.h},${dimensions.d}`));
+                
+                this.usedDimensions.add(`${dimensions.w},${dimensions.h},${dimensions.d}`);
+                return dimensions;
+            }
+
+            generateValidPosition(dimensions) {
+                return {
+                    x: Math.random() * (containerSize.width - dimensions.w),
+                    y: Math.random() * (containerSize.height - dimensions.h),
+                    z: Math.random() * (containerSize.depth - dimensions.d)
+                };
+            }
+
+            generateBoxes(num) {
+                const boxes = [];
+                for (let i = 0; i < num; i++) {
+                    const dim = this.generateUniqueDimensions();
+                    const pos = this.generateValidPosition(dim);
+                    boxes.push({ dimensions: dim, position: pos });
+                }
+                return boxes;
+            }
+        }
+
+        function init() {
+            // Scene setup
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 10000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Lighting
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(0, 500, 1000);
+            scene.add(light);
+            scene.add(new THREE.AmbientLight(0x404040));
+
+            // Create container
+            const containerGeometry = new THREE.BoxGeometry(
+                containerSize.width,
+                containerSize.height,
+                containerSize.depth
+            );
+            const containerMaterial = new THREE.MeshPhongMaterial({
+                color: 0x888888,
+                transparent: true,
+                opacity: 0.1
+            });
+            container = new THREE.Mesh(containerGeometry, containerMaterial);
+            scene.add(container);
+
+            // Generate boxes
+            const generator = new BoxGenerator();
+            const boxData = generator.generateBoxes(55);
+
+            boxData.forEach(data => {
+                const geometry = new THREE.BoxGeometry(
+                    data.dimensions.w,
+                    data.dimensions.h,
+                    data.dimensions.d
+                );
+                const material = new THREE.MeshPhongMaterial({
+                    color: new THREE.Color(Math.random(), Math.random(), Math.random()),
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const box = new THREE.Mesh(geometry, material);
+                box.position.set(
+                    data.position.x - containerSize.width/2 + data.dimensions.w/2,
+                    data.position.y - containerSize.height/2 + data.dimensions.h/2,
+                    data.position.z - containerSize.depth/2 + data.dimensions.d/2
+                );
+                box.userData.dimensions = data.dimensions;
+                boxes.push(box);
+                scene.add(box);
+            });
+
+            // Camera positioning
+            camera.position.set(2000, 2000, 2000);
+            camera.lookAt(0, 0, 0);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.update();
+
+            // Raycasting setup
+            renderer.domElement.addEventListener('click', onDocumentClick, false);
+        }
+
+        function onDocumentClick(event) {
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(boxes);
+            if (intersects.length > 0) {
+                const selected = intersects[0].object;
+                if (selected === selectedBox) {
+                    // Deselect
+                    selected.material.emissive.setHex(0x000000);
+                    selectedBox = null;
+                    document.getElementById('info').innerHTML = "Select a box to see details";
+                } else {
+                    // Deselect previous
+                    if (selectedBox) {
+                        selectedBox.material.emissive.setHex(0x000000);
+                    }
+                    // Select new
+                    selectedBox = selected;
+                    selected.material.emissive.setHex(0xffff00);
+                    const dim = selected.userData.dimensions;
+                    document.getElementById('info').innerHTML = 
+                        `Dimensions: ${dim.w.toFixed(1)} x ${dim.h.toFixed(1)} x ${dim.d.toFixed(1)}<br>
+                         Volume: ${(dim.w * dim.h * dim.d).toLocaleString()}`;
+                }
+            }
+        }
+
+        document.getElementById('toggleVisibility').addEventListener('click', () => {
+            if (selectedBox) {
+                selectedBox.visible = !selectedBox.visible;
+            }
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        init();
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

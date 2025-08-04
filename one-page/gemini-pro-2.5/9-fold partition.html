@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Bin Packing Visualization (Level 1 Example)</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f0f0;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            display: block;
+            color: #333;
+            font-size: 16px;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        #controls label {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div id="info">
+        3D Bin Packing Visualization - Level 1 Example (490 Boxes)<br>
+        Container: 61x44x50 | Box: 9x6x5 (Orientations vary)
+    </div>
+    <div id="controls">
+        <label><input type="checkbox" id="toggleContainer" checked> Show Container Outline</label>
+        <label>Show Subcontainers:</label>
+        <label><input type="checkbox" class="subcontainer-toggle" data-subcontainer="A" checked> A (3 boxes)</label>
+        <label><input type="checkbox" class="subcontainer-toggle" data-subcontainer="B" checked> B (1 box)</label>
+        <label><input type="checkbox" class="subcontainer-toggle" data-subcontainer="C" checked> C (24 boxes)</label>
+        <label><input type="checkbox" class="subcontainer-toggle" data-subcontainer="D" checked> D (18 boxes)</label>
+        <label><input type="checkbox" class="subcontainer-toggle" data-subcontainer="E" checked> E (35 boxes)</label>
+        <label><input type="checkbox" class="subcontainer-toggle" data-subcontainer="F" checked> F (9 boxes)</label>
+        <label><input type="checkbox" class="subcontainer-toggle" data-subcontainer="G" checked> G (220 boxes)</label>
+        <label><input type="checkbox" class="subcontainer-toggle" data-subcontainer="H" checked> H (180 boxes)</label>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls;
+        let containerMesh, containerOutline;
+        const subcontainerGroups = {}; // To hold groups of boxes for toggling
+
+        // --- Configuration ---
+        const containerDimensions = { w: 61, h: 44, d: 50 };
+        // Box dimensions (base, orientations will swap these)
+        const baseBoxDimensions = { w: 9, h: 6, d: 5 };
+
+        // Define colors for boxes in each subcontainer for clarity
+        const subcontainerColors = {
+            A: 0xff0000, // Red
+            B: 0xff8800, // Orange
+            C: 0xffff00, // Yellow
+            D: 0x00ff00, // Lime
+            E: 0x00ffff, // Cyan
+            F: 0x0000ff, // Blue
+            G: 0xff00ff, // Magenta
+            H: 0x8800ff  // Purple
+        };
+
+        // --- Initialization ---
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            // Position camera to view the container
+            camera.position.set(containerDimensions.w * 0.7, containerDimensions.h * 0.8, containerDimensions.d * 1.5);
+            camera.lookAt(0, 0, 0); // Look towards the center of the scene origin
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(50, 100, 75);
+            scene.add(directionalLight);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            // Center the controls target slightly above the base
+            controls.target.set(containerDimensions.w / 2, containerDimensions.h / 3, containerDimensions.d / 2);
+            controls.update();
+
+            // Create Container Visualization
+            createContainerBox();
+
+            // Visualize the specific packing from Figure 6
+            visualizeLevel1Packing();
+
+            // Add event listeners for controls
+            setupControls();
+
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize, false);
+
+            // Start animation loop
+            animate();
+        }
+
+        // --- Geometry Creation ---
+
+        // Create the main container wireframe
+        function createContainerBox() {
+            const geometry = new THREE.BoxGeometry(containerDimensions.w, containerDimensions.h, containerDimensions.d);
+            // Transparent material (optional, mainly using outline)
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xaaaaaa,
+                transparent: true,
+                opacity: 0.05,
+                depthWrite: false // Avoid obscuring boxes inside
+            });
+            containerMesh = new THREE.Mesh(geometry, material);
+            // Position the container so its corner is near the origin (0,0,0)
+            containerMesh.position.set(containerDimensions.w / 2, containerDimensions.h / 2, containerDimensions.d / 2);
+            scene.add(containerMesh);
+
+            // Create outline
+            const edges = new THREE.EdgesGeometry(geometry);
+            containerOutline = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x333333, linewidth: 2 }));
+            containerOutline.position.copy(containerMesh.position); // Match position
+            scene.add(containerOutline);
+        }
+
+        // Create a single packed box mesh
+        // pos: object {x, y, z} - position of the box's corner (min x, y, z)
+        // dim: object {w, h, d} - dimensions of the box in its current orientation
+        // color: hex color value
+        function createPackedBoxMesh(pos, dim, color) {
+            const geometry = new THREE.BoxGeometry(dim.w, dim.h, dim.d);
+            const material = new THREE.MeshStandardMaterial({ color: color, roughness: 0.7, metalness: 0.1 });
+            const mesh = new THREE.Mesh(geometry, material);
+
+            // Position the mesh. THREE.BoxGeometry's origin is its center.
+            // We are given the corner position, so adjust by half dimensions.
+            mesh.position.set(
+                pos.x + dim.w / 2,
+                pos.y + dim.h / 2,
+                pos.z + dim.d / 2
+            );
+            return mesh;
+        }
+
+        // --- Packing Logic (Specific to Level 1 Example) ---
+
+        // Add multiple boxes arranged in a grid within a defined subcontainer space
+        // subcontainerId: 'A' through 'H'
+        // origin: {x, y, z} of the subcontainer space corner
+        // boxDim: {w, h, d} dimensions of the box in *this* orientation
+        // arrangement: {cols, rows, layers} number of boxes along w, h, d axes
+        function addBoxesInSubcontainer(subcontainerId, origin, boxDim, arrangement) {
+            const group = new THREE.Group();
+            group.name = subcontainerId; // For identification
+            const color = subcontainerColors[subcontainerId];
+
+            for (let l = 0; l < arrangement.layers; l++) { // Depth (z)
+                for (let r = 0; r < arrangement.rows; r++) {    // Height (y)
+                    for (let c = 0; c < arrangement.cols; c++) { // Width (x)
+                        const boxPos = {
+                            x: origin.x + c * boxDim.w,
+                            y: origin.y + r * boxDim.h,
+                            z: origin.z + l * boxDim.d
+                        };
+                        const boxMesh = createPackedBoxMesh(boxPos, boxDim, color);
+                        group.add(boxMesh);
+                    }
+                }
+            }
+            subcontainerGroups[subcontainerId] = group;
+            scene.add(group);
+        }
+
+        // Define and pack the 8 subcontainers from Figure 6
+        function visualizeLevel1Packing() {
+            console.log("Visualizing Level 1 Packing...");
+
+            // --- Depth 0 Layer (z = 0 to 5) ---
+            // Subcontainer A: 1-stack of (1x3) arrangement of (6x9x5)-boxes: 3 boxes
+            addBoxesInSubcontainer('A', { x: 0, y: 17, z: 0 }, { w: 6, h: 9, d: 5 }, { cols: 1, rows: 3, layers: 1 });
+
+            // Subcontainer B: 1-stack of (1x1)-arrangement of (6x9x5)-boxes: 1 box
+            addBoxesInSubcontainer('B', { x: 0, y: 0, z: 0 }, { w: 6, h: 9, d: 5 }, { cols: 1, rows: 1, layers: 1 }); // Adjusted y based on figure
+
+            // Subcontainer C: 1-stack of (6x4)-arrangement of (9x6x5)-boxes: 24 boxes
+            addBoxesInSubcontainer('C', { x: 7, y: 20, z: 0 }, { w: 9, h: 6, d: 5 }, { cols: 6, rows: 4, layers: 1 });
+
+            // Subcontainer D: 1-stack of (6x3)-arrangement of (9x6x5)-boxes: 18 boxes
+            addBoxesInSubcontainer('D', { x: 7, y: 0, z: 0 }, { w: 9, h: 6, d: 5 }, { cols: 6, rows: 3, layers: 1 }); // Adjusted y based on figure
+
+            // --- Depth 5 Layer (z = 5 to 50) ---
+            // Subcontainer E: 5-stack of (1x7)-arrangement of (6x5x9)-boxes: 35 boxes
+            addBoxesInSubcontainer('E', { x: 0, y: 9, z: 5 }, { w: 6, h: 5, d: 9 }, { cols: 1, rows: 7, layers: 5 }); // Adjusted y based on figure
+
+            // Subcontainer F: 9-stack of (1x1)-arrangement of (6x9x5)-boxes: 9 boxes
+            addBoxesInSubcontainer('F', { x: 0, y: 0, z: 5 }, { w: 6, h: 9, d: 5 }, { cols: 1, rows: 1, layers: 9 }); // Note orientation change
+
+            // Subcontainer G: 5-stack of (11x4)-arrangement of (5x6x9)-boxes: 220 boxes
+            addBoxesInSubcontainer('G', { x: 6, y: 20, z: 5 }, { w: 5, h: 6, d: 9 }, { cols: 11, rows: 4, layers: 5 });
+
+            // Subcontainer H: 5-stack of (9x4)-arrangement of (6x5x9)-boxes: 180 boxes
+            addBoxesInSubcontainer('H', { x: 7, y: 0, z: 5 }, { w: 6, h: 5, d: 9 }, { cols: 9, rows: 4, layers: 5 }); // Adjusted y based on figure
+
+            console.log("Total boxes visualized:", 3 + 1 + 24 + 18 + 35 + 9 + 220 + 180); // Should be 490
+        }
+
+
+        // --- UI Controls ---
+        function setupControls() {
+            // Toggle Container Outline
+            document.getElementById('toggleContainer').addEventListener('change', (event) => {
+                containerOutline.visible = event.target.checked;
+                containerMesh.visible = event.target.checked; // Also toggle the faint mesh
+            });
+
+            // Toggle Subcontainer Visibility
+            document.querySelectorAll('.subcontainer-toggle').forEach(checkbox => {
+                checkbox.addEventListener('change', (event) => {
+                    const subcontainerId = event.target.dataset.subcontainer;
+                    if (subcontainerGroups[subcontainerId]) {
+                        subcontainerGroups[subcontainerId].visible = event.target.checked;
+                    }
+                });
+            });
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // Only required if controls.enableDamping or controls.autoRotate are set to true
+            renderer.render(scene, camera);
+        }
+
+        // --- Event Handlers ---
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Start ---
+        init();
+
+    </script>
+</body>
+
+</html>

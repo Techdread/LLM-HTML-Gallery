@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Palletization Algorithm Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+            color: white;
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #canvas-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 100;
+            min-width: 300px;
+        }
+        
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 100;
+            min-width: 250px;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+        
+        select, button, input[type="range"] {
+            width: 100%;
+            padding: 8px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 14px;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+        }
+        
+        button:disabled {
+            background: rgba(255, 255, 255, 0.2);
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .algorithm-btn {
+            background: linear-gradient(45deg, #2196F3, #1976D2);
+            margin: 5px 0;
+        }
+        
+        .algorithm-btn:hover {
+            box-shadow: 0 5px 15px rgba(33, 150, 243, 0.4);
+        }
+        
+        .algorithm-btn.active {
+            background: linear-gradient(45deg, #FF9800, #F57C00);
+        }
+        
+        input[type="range"] {
+            -webkit-appearance: none;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.3);
+            outline: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #4CAF50;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        
+        .stats {
+            font-size: 12px;
+            margin: 5px 0;
+        }
+        
+        .legend {
+            margin-top: 15px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        
+        .color-box {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 4px;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px 40px;
+            border-radius: 10px;
+            z-index: 1000;
+        }
+        
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid #4CAF50;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .visualization-mode {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        .mode-btn {
+            flex: 1;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .mode-btn.active {
+            background: rgba(76, 175, 80, 0.3);
+            border-color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="canvas-container"></div>
+        
+        <div id="controls">
+            <h3>Algorithm Controls</h3>
+            
+            <div class="control-group">
+                <label>Spatial Tracking Method:</label>
+                <select id="spatialMethod">
+                    <option value="linear">Linear Search (Current)</option>
+                    <option value="grid">Grid-based (Voxel)</option>
+                    <option value="octree">Octree</option>
+                    <option value="corners">Corner Points</option>
+                    <option value="spatial-hash">Spatial Hashing</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label>Placement Algorithm:</label>
+                <button class="algorithm-btn active" data-algorithm="firstfit">First Fit</button>
+                <button class="algorithm-btn" data-algorithm="bottomleft">Bottom-Left Fill</button>
+                <button class="algorithm-btn" data-algorithm="skyline">3D Skyline</button>
+                <button class="algorithm-btn" data-algorithm="corners">Corner Points</button>
+            </div>
+            
+            <div class="visualization-mode">
+                <div class="mode-btn active" data-mode="products">Products</div>
+                <div class="mode-btn" data-mode="spatial">Spatial Grid</div>
+                <div class="mode-btn" data-mode="both">Both</div>
+            </div>
+            
+            <div class="control-group">
+                <label>Animation Speed:</label>
+                <input type="range" id="speed" min="50" max="2000" value="500">
+            </div>
+            
+            <div class="control-group">
+                <label>Grid Resolution (for grid-based):</label>
+                <input type="range" id="gridRes" min="10" max="50" value="20">
+            </div>
+            
+            <div class="control-group">
+                <button id="startBtn">Start Packing</button>
+                <button id="pauseBtn" disabled>Pause</button>
+                <button id="resetBtn">Reset</button>
+                <button id="stepBtn">Step</button>
+            </div>
+        </div>
+        
+        <div id="info-panel">
+            <h3>Statistics</h3>
+            <div class="stats">
+                <div>Products Placed: <span id="placedCount">0</span></div>
+                <div>Total Products: <span id="totalCount">0</span></div>
+                <div>Volume Utilization: <span id="utilization">0%</span></div>
+                <div>Current Operation: <span id="currentOp">Ready</span></div>
+                <div>Spatial Queries: <span id="queries">0</span></div>
+                <div>Collisions Checked: <span id="collisions">0</span></div>
+            </div>
+            
+            <div class="legend">
+                <h4>Legend</h4>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #8B4513;"></div>
+                    <span>Pallet</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #4CAF50;"></div>
+                    <span>Placed Products</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #FF5722;"></div>
+                    <span>Current Product</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #FFC107;"></div>
+                    <span>Candidate Position</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: rgba(255, 255, 255, 0.1);"></div>
+                    <span>Spatial Grid</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #2196F3;"></div>
+                    <span>Corner Points</span>
+                </div>
+            </div>
+        </div>
+        
+        <div id="loading" style="display: none;">
+            <div class="spinner"></div>
+            <div>Loading Three.js...</div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Global variables
+        let scene, camera, renderer, controls;
+        let pallet, products = [], placedProducts = [];
+        let spatialGrid, spatialStructure;
+        let isRunning = false, isPaused = false;
+        let currentAlgorithm = 'firstfit';
+        let currentSpatialMethod = 'linear';
+        let visualizationMode = 'products';
+        let animationSpeed = 500;
+        let gridResolution = 20;
+        let stats = {
+            placedCount: 0,
+            totalCount: 0,
+            queries: 0,
+            collisions: 0
+        };
+
+        // Pallet and product configurations
+        const PALLET_SIZE = { width: 120, height: 15, length: 100 };
+        const PRODUCT_TYPES = [
+            { width: 20, height: 25, length: 30, color: 0x4CAF50, weight: 5 },
+            { width: 15, height: 30, length: 25, color: 0x2196F3, weight: 3 },
+            { width: 25, height: 20, length: 20, color: 0xFF9800, weight: 7 },
+            { width: 30, height: 15, length: 35, color: 0x9C27B0, weight: 8 },
+            { width: 18, height: 22, length: 28, color: 0xF44336, weight: 4 }
+        ];
+
+        // Initialize Three.js scene
+        function initThreeJS() {
+            const container = document.getElementById('canvas-container');
+            
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x222222);
+            scene.fog = new THREE.Fog(0x222222, 200, 1000);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(200, 150, 200);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(100, 100, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+
+            // Basic camera controls (simplified orbit)
+            setupCameraControls();
+
+            // Create pallet
+            createPallet();
+            
+            // Generate sample products
+            generateProducts();
+            
+            // Initialize spatial structures
+            initializeSpatialStructures();
+            
+            animate();
+        }
+
+        function setupCameraControls() {
+            let isMouseDown = false;
+            let mouseX = 0, mouseY = 0;
+            let targetRotationX = 0, targetRotationY = 0;
+            let rotationX = 0, rotationY = 0;
+
+            renderer.domElement.addEventListener('mousedown', (event) => {
+                isMouseDown = true;
+                mouseX = event.clientX;
+                mouseY = event.clientY;
+            });
+
+            document.addEventListener('mouseup', () => {
+                isMouseDown = false;
+            });
+
+            document.addEventListener('mousemove', (event) => {
+                if (isMouseDown) {
+                    const deltaX = event.clientX - mouseX;
+                    const deltaY = event.clientY - mouseY;
+                    
+                    targetRotationY += deltaX * 0.01;
+                    targetRotationX += deltaY * 0.01;
+                    
+                    mouseX = event.clientX;
+                    mouseY = event.clientY;
+                }
+            });
+
+            renderer.domElement.addEventListener('wheel', (event) => {
+                const distance = camera.position.length();
+                const factor = event.deltaY > 0 ? 1.1 : 0.9;
+                camera.position.multiplyScalar(factor);
+            });
+
+            function updateCamera() {
+                rotationX += (targetRotationX - rotationX) * 0.05;
+                rotationY += (targetRotationY - rotationY) * 0.05;
+                
+                const distance = camera.position.length();
+                camera.position.x = distance * Math.sin(rotationY) * Math.cos(rotationX);
+                camera.position.y = distance * Math.sin(rotationX);
+                camera.position.z = distance * Math.cos(rotationY) * Math.cos(rotationX);
+                camera.lookAt(0, 0, 0);
+                
+                requestAnimationFrame(updateCamera);
+            }
+            updateCamera();
+        }
+
+        function createPallet() {
+            const geometry = new THREE.BoxGeometry(PALLET_SIZE.length, PALLET_SIZE.height, PALLET_SIZE.width);
+            const material = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            pallet = new THREE.Mesh(geometry, material);
+            pallet.position.set(0, PALLET_SIZE.height / 2, 0);
+            pallet.castShadow = true;
+            pallet.receiveShadow = true;
+            scene.add(pallet);
+
+            // Add wireframe outline
+            const wireframe = new THREE.WireframeGeometry(geometry);
+            const line = new THREE.LineSegments(wireframe);
+            line.material.color.setHex(0x000000);
+            line.position.copy(pallet.position);
+            scene.add(line);
+        }
+
+        function generateProducts() {
+            products = [];
+            const productCount = 20;
+            
+            for (let i = 0; i < productCount; i++) {
+                const type = PRODUCT_TYPES[Math.floor(Math.random() * PRODUCT_TYPES.length)];
+                products.push({
+                    id: i,
+                    dimensions: { ...type },
+                    placed: false,
+                    mesh: null
+                });
+            }
+            
+            stats.totalCount = products.length;
+            updateStats();
+        }
+
+        function initializeSpatialStructures() {
+            switch (currentSpatialMethod) {
+                case 'grid':
+                    initializeGrid();
+                    break;
+                case 'octree':
+                    initializeOctree();
+                    break;
+                case 'corners':
+                    initializeCornerPoints();
+                    break;
+                case 'spatial-hash':
+                    initializeSpatialHash();
+                    break;
+                default:
+                    spatialStructure = null;
+            }
+        }
+
+        function initializeGrid() {
+            spatialGrid = [];
+            const cellSize = Math.max(PALLET_SIZE.length, PALLET_SIZE.width) / gridResolution;
+            
+            // Create visual grid if needed
+            if (visualizationMode === 'spatial' || visualizationMode === 'both') {
+                createVisualGrid(cellSize);
+            }
+            
+            // Initialize grid data structure
+            spatialStructure = {
+                cells: new Map(),
+                cellSize: cellSize,
+                checkCollision: function(position, dimensions) {
+                    stats.queries++;
+                    const minX = Math.floor(position.x / this.cellSize);
+                    const maxX = Math.floor((position.x + dimensions.length) / this.cellSize);
+                    const minZ = Math.floor(position.z / this.cellSize);
+                    const maxZ = Math.floor((position.z + dimensions.width) / this.cellSize);
+                    
+                    for (let x = minX; x <= maxX; x++) {
+                        for (let z = minZ; z <= maxZ; z++) {
+                            const key = `${x},${z}`;
+                            if (this.cells.has(key)) {
+                                const cellProducts = this.cells.get(key);
+                                for (let product of cellProducts) {
+                                    if (isOverlapping(position, dimensions, product.position, product.dimensions)) {
+                                        stats.collisions++;
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                },
+                addProduct: function(position, dimensions, productId) {
+                    const minX = Math.floor(position.x / this.cellSize);
+                    const maxX = Math.floor((position.x + dimensions.length) / this.cellSize);
+                    const minZ = Math.floor(position.z / this.cellSize);
+                    const maxZ = Math.floor((position.z + dimensions.width) / this.cellSize);
+                    
+                    for (let x = minX; x <= maxX; x++) {
+                        for (let z = minZ; z <= maxZ; z++) {
+                            const key = `${x},${z}`;
+                            if (!this.cells.has(key)) {
+                                this.cells.set(key, []);
+                            }
+                            this.cells.get(key).push({ position, dimensions, productId });
+                        }
+                    }
+                }
+            };
+        }
+
+        function createVisualGrid(cellSize) {
+            console.log('Creating visual grid with cellSize:', cellSize, 'visualizationMode:', visualizationMode);
+            const gridGroup = new THREE.Group();
+            gridGroup.name = 'spatialGrid';
+            
+            // Remove existing grid
+            const existingGrid = scene.getObjectByName('spatialGrid');
+            if (existingGrid) {
+                scene.remove(existingGrid);
+                console.log('Removed existing grid');
+            }
+            
+            const material = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.8 });
+            
+            // Vertical lines
+            for (let x = -PALLET_SIZE.length/2; x <= PALLET_SIZE.length/2; x += cellSize) {
+                const geometry = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(x, PALLET_SIZE.height, -PALLET_SIZE.width/2),
+                    new THREE.Vector3(x, PALLET_SIZE.height, PALLET_SIZE.width/2)
+                ]);
+                const line = new THREE.Line(geometry, material);
+                gridGroup.add(line);
+            }
+            
+            // Horizontal lines
+            for (let z = -PALLET_SIZE.width/2; z <= PALLET_SIZE.width/2; z += cellSize) {
+                const geometry = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(-PALLET_SIZE.length/2, PALLET_SIZE.height, z),
+                    new THREE.Vector3(PALLET_SIZE.length/2, PALLET_SIZE.height, z)
+                ]);
+                const line = new THREE.Line(geometry, material);
+                gridGroup.add(line);
+            }
+            
+            scene.add(gridGroup);
+            console.log('Added grid to scene with', gridGroup.children.length, 'lines');
+        }
+
+        function initializeCornerPoints() {
+            spatialStructure = {
+                corners: [{ x: -PALLET_SIZE.length/2, y: PALLET_SIZE.height, z: -PALLET_SIZE.width/2 }],
+                visualCorners: [],
+                checkCollision: function(position, dimensions) {
+                    stats.queries++;
+                    for (let placed of placedProducts) {
+                        if (isOverlapping(position, dimensions, placed.position, placed.dimensions)) {
+                            stats.collisions++;
+                            return true;
+                        }
+                    }
+                    return false;
+                },
+                addProduct: function(position, dimensions, productId) {
+                    // Remove blocked corners
+                    this.corners = this.corners.filter(corner => 
+                        !isPointInside(corner, position, dimensions)
+                    );
+                    
+                    // Add new corners
+                    const newCorners = [
+                        { x: position.x + dimensions.length, y: position.y, z: position.z },
+                        { x: position.x, y: position.y + dimensions.height, z: position.z },
+                        { x: position.x, y: position.y, z: position.z + dimensions.width }
+                    ];
+                    
+                    this.corners.push(...newCorners);
+                    this.updateVisualCorners();
+                },
+                updateVisualCorners: function() {
+                    // Remove existing corner visualizations
+                    this.visualCorners.forEach(corner => scene.remove(corner));
+                    this.visualCorners = [];
+                    
+                    if (visualizationMode === 'spatial' || visualizationMode === 'both') {
+                        this.corners.forEach(corner => {
+                            const geometry = new THREE.SphereGeometry(2, 8, 6);
+                            const material = new THREE.MeshBasicMaterial({ color: 0x2196F3 });
+                            const sphere = new THREE.Mesh(geometry, material);
+                            sphere.position.set(corner.x, corner.y, corner.z);
+                            this.visualCorners.push(sphere);
+                            scene.add(sphere);
+                        });
+                    }
+                }
+            };
+            spatialStructure.updateVisualCorners();
+        }
+
+        function initializeOctree() {
+            // Simplified octree implementation
+            spatialStructure = {
+                bounds: {
+                    min: { x: -PALLET_SIZE.length/2, y: 0, z: -PALLET_SIZE.width/2 },
+                    max: { x: PALLET_SIZE.length/2, y: 200, z: PALLET_SIZE.width/2 }
+                },
+                products: [],
+                checkCollision: function(position, dimensions) {
+                    stats.queries++;
+                    for (let product of this.products) {
+                        if (isOverlapping(position, dimensions, product.position, product.dimensions)) {
+                            stats.collisions++;
+                            return true;
+                        }
+                    }
+                    return false;
+                },
+                addProduct: function(position, dimensions, productId) {
+                    this.products.push({ position, dimensions, productId });
+                }
+            };
+        }
+
+        function initializeSpatialHash() {
+            spatialStructure = {
+                buckets: new Map(),
+                bucketSize: 25,
+                hash: function(x, y, z) {
+                    const hx = Math.floor(x / this.bucketSize);
+                    const hy = Math.floor(y / this.bucketSize);
+                    const hz = Math.floor(z / this.bucketSize);
+                    return `${hx},${hy},${hz}`;
+                },
+                checkCollision: function(position, dimensions) {
+                    stats.queries++;
+                    const relevantBuckets = this.getRelevantBuckets(position, dimensions);
+                    
+                    for (let bucketKey of relevantBuckets) {
+                        if (this.buckets.has(bucketKey)) {
+                            for (let product of this.buckets.get(bucketKey)) {
+                                if (isOverlapping(position, dimensions, product.position, product.dimensions)) {
+                                    stats.collisions++;
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                },
+                getRelevantBuckets: function(position, dimensions) {
+                    const buckets = new Set();
+                    const minX = position.x;
+                    const maxX = position.x + dimensions.length;
+                    const minY = position.y;
+                    const maxY = position.y + dimensions.height;
+                    const minZ = position.z;
+                    const maxZ = position.z + dimensions.width;
+                    
+                    for (let x = minX; x <= maxX; x += this.bucketSize) {
+                        for (let y = minY; y <= maxY; y += this.bucketSize) {
+                            for (let z = minZ; z <= maxZ; z += this.bucketSize) {
+                                buckets.add(this.hash(x, y, z));
+                            }
+                        }
+                    }
+                    return buckets;
+                },
+                addProduct: function(position, dimensions, productId) {
+                    const relevantBuckets = this.getRelevantBuckets(position, dimensions);
+                    
+                    for (let bucketKey of relevantBuckets) {
+                        if (!this.buckets.has(bucketKey)) {
+                            this.buckets.set(bucketKey, []);
+                        }
+                        this.buckets.get(bucketKey).push({ position, dimensions, productId });
+                    }
+                }
+            };
+        }
+
+        // Utility functions
+        function isOverlapping(pos1, dim1, pos2, dim2) {
+            return pos1.x < pos2.x + dim2.length && pos1.x + dim1.length > pos2.x &&
+                   pos1.y < pos2.y + dim2.height && pos1.y + dim1.height > pos2.y &&
+                   pos1.z < pos2.z + dim2.width && pos1.z + dim1.width > pos2.z;
+        }
+
+        function isPointInside(point, position, dimensions) {
+            return point.x >= position.x && point.x <= position.x + dimensions.length &&
+                   point.y >= position.y && point.y <= position.y + dimensions.height &&
+                   point.z >= position.z && point.z <= position.z + dimensions.width;
+        }
+
+        function isValidPosition(position, dimensions) {
+            // Check pallet bounds
+            if (position.x < -PALLET_SIZE.length/2 || position.x + dimensions.length > PALLET_SIZE.length/2 ||
+                position.z < -PALLET_SIZE.width/2 || position.z + dimensions.width > PALLET_SIZE.width/2) {
+                return false;
+            }
+            
+            // Check collision using spatial structure
+            if (spatialStructure && spatialStructure.checkCollision) {
+                return !spatialStructure.checkCollision(position, dimensions);
+            } else {
+                // Linear search fallback
+                stats.queries++;
+                for (let placed of placedProducts) {
+                    if (isOverlapping(position, dimensions, placed.position, placed.dimensions)) {
+                        stats.collisions++;
+                        return false;
+                    }
+                }
+            }
+            
+            return true;
+        }
+
+        // Algorithm implementations
+        async function firstFitAlgorithm() {
+            for (let product of products) {
+                if (product.placed) continue;
+                
+                updateCurrentOperation(`Placing product ${product.id} (FirstFit)`);
+                
+                let placed = false;
+                const step = 10;
+                
+                for (let x = -PALLET_SIZE.length/2; x <= PALLET_SIZE.length/2 - product.dimensions.length && !placed; x += step) {
+                    for (let z = -PALLET_SIZE.width/2; z <= PALLET_SIZE.width/2 - product.dimensions.width && !placed; z += step) {
+                        const position = { x, y: PALLET_SIZE.height, z };
+                        
+                        // Show candidate position
+                        await showCandidatePosition(position, product.dimensions);
+                        
+                        if (isValidPosition(position, product.dimensions)) {
+                            await placeProduct(product, position);
+                            placed = true;
+                        }
+                    }
+                }
+                
+                if (!placed) {
+                    console.log(`Could not place product ${product.id}`);
+                }
+                
+                if (isPaused) {
+                    await waitForResume();
+                }
+            }
+        }
+
+        async function bottomLeftFillAlgorithm() {
+            for (let product of products) {
+                if (product.placed) continue;
+                
+                updateCurrentOperation(`Placing product ${product.id} (Bottom-Left Fill)`);
+                
+                let bestPosition = null;
+                let minX = Infinity, minZ = Infinity;
+                
+                const step = 5;
+                
+                for (let x = -PALLET_SIZE.length/2; x <= PALLET_SIZE.length/2 - product.dimensions.length; x += step) {
+                    for (let z = -PALLET_SIZE.width/2; z <= PALLET_SIZE.width/2 - product.dimensions.width; z += step) {
+                        // Find lowest possible Y position
+                        let y = PALLET_SIZE.height;
+                        for (let placed of placedProducts) {
+                            if (x < placed.position.x + placed.dimensions.length && 
+                                x + product.dimensions.length > placed.position.x &&
+                                z < placed.position.z + placed.dimensions.width && 
+                                z + product.dimensions.width > placed.position.z) {
+                                y = Math.max(y, placed.position.y + placed.dimensions.height);
+                            }
+                        }
+                        
+                        const position = { x, y, z };
+                        
+                        if (isValidPosition(position, product.dimensions)) {
+                            // Choose bottom-left-most position
+                            if (x < minX || (x === minX && z < minZ)) {
+                                bestPosition = position;
+                                minX = x;
+                                minZ = z;
+                            }
+                        }
+                    }
+                }
+                
+                if (bestPosition) {
+                    await showCandidatePosition(bestPosition, product.dimensions);
+                    await placeProduct(product, bestPosition);
+                } else {
+                    console.log(`Could not place product ${product.id}`);
+                }
+                
+                if (isPaused) {
+                    await waitForResume();
+                }
+            }
+        }
+
+        async function skylineAlgorithm() {
+            let skyline = [{ x: -PALLET_SIZE.length/2, z: -PALLET_SIZE.width/2, width: PALLET_SIZE.width, length: PALLET_SIZE.length, height: PALLET_SIZE.height }];
+            
+            for (let product of products) {
+                if (product.placed) continue;
+                
+                updateCurrentOperation(`Placing product ${product.id} (3D Skyline)`);
+                
+                let bestPosition = null;
+                let bestSegment = null;
+                let minWaste = Infinity;
+                
+                for (let segment of skyline) {
+                    if (segment.length >= product.dimensions.length && segment.width >= product.dimensions.width) {
+                        const position = { x: segment.x, y: segment.height, z: segment.z };
+                        
+                        if (isValidPosition(position, product.dimensions)) {
+                            const waste = (segment.length * segment.width) - (product.dimensions.length * product.dimensions.width);
+                            if (waste < minWaste) {
+                                bestPosition = position;
+                                bestSegment = segment;
+                                minWaste = waste;
+                            }
+                        }
+                    }
+                }
+                
+                if (bestPosition) {
+                    await showCandidatePosition(bestPosition, product.dimensions);
+                    await placeProduct(product, bestPosition);
+                    updateSkyline(skyline, bestSegment, bestPosition, product.dimensions);
+                } else {
+                    console.log(`Could not place product ${product.id}`);
+                }
+                
+                if (isPaused) {
+                    await waitForResume();
+                }
+            }
+        }
+
+        async function cornerPointsAlgorithm() {
+            // Ensure corner points structure is initialized
+            if (!spatialStructure || !spatialStructure.corners) {
+                currentSpatialMethod = 'corners';
+                initializeSpatialStructures();
+            }
+            
+            if (!spatialStructure || !spatialStructure.corners) {
+                console.error('Corner points structure not initialized');
+                return;
+            }
+            
+            for (let product of products) {
+                if (product.placed) continue;
+                
+                updateCurrentOperation(`Placing product ${product.id} (Corner Points)`);
+                
+                let bestPosition = null;
+                let bestCorner = null;
+                
+                // Sort corners by preference (bottom-left-front first)
+                const sortedCorners = [...spatialStructure.corners].sort((a, b) => {
+                    if (a.y !== b.y) return a.y - b.y;
+                    if (a.x !== b.x) return a.x - b.x;
+                    return a.z - b.z;
+                });
+                
+                for (let corner of sortedCorners) {
+                    const position = { x: corner.x, y: corner.y, z: corner.z };
+                    
+                    if (isValidPosition(position, product.dimensions)) {
+                        bestPosition = position;
+                        bestCorner = corner;
+                        break;
+                    }
+                }
+                
+                if (bestPosition) {
+                    await showCandidatePosition(bestPosition, product.dimensions);
+                    await placeProduct(product, bestPosition);
+                } else {
+                    console.log(`Could not place product ${product.id}`);
+                }
+                
+                if (isPaused) {
+                    await waitForResume();
+                }
+            }
+        }
+
+        function updateSkyline(skyline, usedSegment, position, dimensions) {
+            // Remove used segment
+            const index = skyline.indexOf(usedSegment);
+            skyline.splice(index, 1);
+            
+            // Add new segments around the placed product
+            const newHeight = position.y + dimensions.height;
+            
+            // Top segment
+            skyline.push({
+                x: position.x,
+                z: position.z,
+                width: dimensions.width,
+                length: dimensions.length,
+                height: newHeight
+            });
+            
+            // Right segment (if there's remaining space)
+            if (position.x + dimensions.length < usedSegment.x + usedSegment.length) {
+                skyline.push({
+                    x: position.x + dimensions.length,
+                    z: usedSegment.z,
+                    width: usedSegment.width,
+                    length: usedSegment.x + usedSegment.length - (position.x + dimensions.length),
+                    height: usedSegment.height
+                });
+            }
+            
+            // Back segment (if there's remaining space)
+            if (position.z + dimensions.width < usedSegment.z + usedSegment.width) {
+                skyline.push({
+                    x: position.x,
+                    z: position.z + dimensions.width,
+                    width: usedSegment.z + usedSegment.width - (position.z + dimensions.width),
+                    length: dimensions.length,
+                    height: usedSegment.height
+                });
+            }
+        }
+
+        async function showCandidatePosition(position, dimensions) {
+            // Remove previous candidate
+            const existing = scene.getObjectByName('candidate');
+            if (existing) {
+                scene.remove(existing);
+            }
+            
+            // Create candidate visualization
+            const geometry = new THREE.BoxGeometry(dimensions.length, dimensions.height, dimensions.width);
+            const material = new THREE.MeshBasicMaterial({ 
+                color: 0xFFC107, 
+                transparent: true, 
+                opacity: 0.5,
+                wireframe: true
+            });
+            const candidate = new THREE.Mesh(geometry, material);
+            candidate.name = 'candidate';
+            candidate.position.set(
+                position.x + dimensions.length / 2,
+                position.y + dimensions.height / 2,
+                position.z + dimensions.width / 2
+            );
+            scene.add(candidate);
+            
+            await sleep(animationSpeed / 4);
+        }
+
+        async function placeProduct(product, position) {
+            // Remove candidate
+            const candidate = scene.getObjectByName('candidate');
+            if (candidate) {
+                scene.remove(candidate);
+            }
+            
+            // Create product mesh
+            const geometry = new THREE.BoxGeometry(
+                product.dimensions.length,
+                product.dimensions.height,
+                product.dimensions.width
+            );
+            const material = new THREE.MeshLambertMaterial({ color: product.dimensions.color });
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            mesh.position.set(
+                position.x + product.dimensions.length / 2,
+                position.y + product.dimensions.height / 2,
+                position.z + product.dimensions.width / 2
+            );
+            
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            
+            // Add wireframe
+            const wireframe = new THREE.WireframeGeometry(geometry);
+            const line = new THREE.LineSegments(wireframe);
+            line.material.color.setHex(0x000000);
+            line.position.copy(mesh.position);
+            
+            scene.add(mesh);
+            scene.add(line);
+            
+            // Update data structures
+            product.placed = true;
+            product.mesh = mesh;
+            product.position = position;
+            
+            placedProducts.push({
+                position: position,
+                dimensions: product.dimensions,
+                productId: product.id
+            });
+            
+            // Update spatial structure
+            if (spatialStructure && spatialStructure.addProduct) {
+                spatialStructure.addProduct(position, product.dimensions, product.id);
+            }
+            
+            // Update statistics
+            stats.placedCount++;
+            updateStats();
+            
+            await sleep(animationSpeed);
+        }
+
+        function updateStats() {
+            document.getElementById('placedCount').textContent = stats.placedCount;
+            document.getElementById('totalCount').textContent = stats.totalCount;
+            document.getElementById('queries').textContent = stats.queries;
+            document.getElementById('collisions').textContent = stats.collisions;
+            
+            // Calculate utilization
+            const placedVolume = placedProducts.reduce((sum, p) => 
+                sum + (p.dimensions.length * p.dimensions.width * p.dimensions.height), 0);
+            const totalVolume = PALLET_SIZE.length * PALLET_SIZE.width * 150; // Max height
+            const utilization = totalVolume > 0 ? ((placedVolume / totalVolume) * 100).toFixed(1) : 0;
+            document.getElementById('utilization').textContent = utilization + '%';
+        }
+
+        function updateCurrentOperation(operation) {
+            document.getElementById('currentOp').textContent = operation;
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function waitForResume() {
+            while (isPaused && isRunning) {
+                await sleep(100);
+            }
+        }
+
+        // Event handlers
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            if (isRunning) return;
+            
+            isRunning = true;
+            isPaused = false;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('pauseBtn').disabled = false;
+            document.getElementById('resetBtn').disabled = true;
+            
+            try {
+                switch (currentAlgorithm) {
+                    case 'firstfit':
+                        await firstFitAlgorithm();
+                        break;
+                    case 'bottomleft':
+                        await bottomLeftFillAlgorithm();
+                        break;
+                    case 'skyline':
+                        await skylineAlgorithm();
+                        break;
+                    case 'corners':
+                        await cornerPointsAlgorithm();
+                        break;
+                }
+                updateCurrentOperation('Completed');
+            } catch (error) {
+                console.error('Algorithm error:', error);
+                updateCurrentOperation('Error occurred');
+            }
+            
+            isRunning = false;
+            isPaused = false;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('pauseBtn').textContent = 'Pause';
+            document.getElementById('resetBtn').disabled = false;
+        });
+
+        document.getElementById('pauseBtn').addEventListener('click', () => {
+            isPaused = !isPaused;
+            document.getElementById('pauseBtn').textContent = isPaused ? 'Resume' : 'Pause';
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            reset();
+        });
+
+        document.getElementById('stepBtn').addEventListener('click', async () => {
+            if (isRunning) return;
+            
+            // Find next unplaced product and place it
+            const nextProduct = products.find(p => !p.placed);
+            if (nextProduct) {
+                isRunning = true;
+                document.getElementById('stepBtn').disabled = true;
+                
+                // Use first fit for single step
+                let placed = false;
+                const step = 10;
+                
+                for (let x = -PALLET_SIZE.length/2; x <= PALLET_SIZE.length/2 - nextProduct.dimensions.length && !placed; x += step) {
+                    for (let z = -PALLET_SIZE.width/2; z <= PALLET_SIZE.width/2 - nextProduct.dimensions.width && !placed; z += step) {
+                        let y = PALLET_SIZE.height;
+                        
+                        // Find stacking height
+                        for (let placed of placedProducts) {
+                            if (x < placed.position.x + placed.dimensions.length && 
+                                x + nextProduct.dimensions.length > placed.position.x &&
+                                z < placed.position.z + placed.dimensions.width && 
+                                z + nextProduct.dimensions.width > placed.position.z) {
+                                y = Math.max(y, placed.position.y + placed.dimensions.height);
+                            }
+                        }
+                        
+                        const position = { x, y, z };
+                        
+                        if (isValidPosition(position, nextProduct.dimensions)) {
+                            await showCandidatePosition(position, nextProduct.dimensions);
+                            await placeProduct(nextProduct, position);
+                            placed = true;
+                        }
+                    }
+                }
+                
+                if (!placed) {
+                    updateCurrentOperation(`Could not place product ${nextProduct.id}`);
+                }
+                
+                isRunning = false;
+                document.getElementById('stepBtn').disabled = false;
+            }
+        });
+
+        // Algorithm selection
+        document.querySelectorAll('.algorithm-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (isRunning) return;
+                
+                document.querySelectorAll('.algorithm-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentAlgorithm = btn.dataset.algorithm;
+                
+                // If switching to corner points algorithm, ensure we use corner points spatial method
+                if (currentAlgorithm === 'corners') {
+                    currentSpatialMethod = 'corners';
+                    document.getElementById('spatialMethod').value = 'corners';
+                }
+                
+                reset();
+            });
+        });
+
+        // Spatial method selection
+        document.getElementById('spatialMethod').addEventListener('change', (e) => {
+            if (isRunning) return;
+            currentSpatialMethod = e.target.value;
+            reset();
+        });
+
+        // Visualization mode selection
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                visualizationMode = btn.dataset.mode;
+                
+                // Auto-switch to appropriate spatial method for visualization
+                if (btn.dataset.mode === 'spatial' || btn.dataset.mode === 'both') {
+                    if (currentSpatialMethod === 'linear') {
+                        currentSpatialMethod = 'grid';
+                        document.getElementById('spatialMethod').value = 'grid';
+                    }
+                }
+                
+                initializeSpatialStructures();
+            });
+        });
+
+        // Speed control
+        document.getElementById('speed').addEventListener('input', (e) => {
+            animationSpeed = parseInt(e.target.value);
+        });
+
+        // Grid resolution control
+        document.getElementById('gridRes').addEventListener('input', (e) => {
+            if (isRunning) return;
+            gridResolution = parseInt(e.target.value);
+            if (currentSpatialMethod === 'grid') {
+                initializeSpatialStructures();
+            }
+        });
+
+        function reset() {
+            // Stop any running algorithm
+            isRunning = false;
+            isPaused = false;
+            
+            // Clear placed products and their wireframes
+            placedProducts.forEach(product => {
+                if (product.mesh) {
+                    scene.remove(product.mesh);
+                }
+            });
+            
+            // Remove all product meshes from scene
+            const objectsToRemove = [];
+            scene.traverse((child) => {
+                if (child.isMesh && child !== pallet) {
+                    objectsToRemove.push(child);
+                }
+                if (child.isLineSegments && child.parent === scene) {
+                    objectsToRemove.push(child);
+                }
+            });
+            objectsToRemove.forEach(obj => scene.remove(obj));
+            
+            placedProducts = [];
+            
+            // Reset products
+            products.forEach(product => {
+                product.placed = false;
+                product.mesh = null;
+                product.position = null;
+            });
+            
+            // Remove candidate and other temporary objects
+            const candidate = scene.getObjectByName('candidate');
+            if (candidate) scene.remove(candidate);
+            
+            // Reset statistics
+            stats.placedCount = 0;
+            stats.queries = 0;
+            stats.collisions = 0;
+            updateStats();
+            updateCurrentOperation('Ready');
+            
+            // Reinitialize spatial structures
+            initializeSpatialStructures();
+            
+            // Reset buttons
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('resetBtn').disabled = false;
+            document.getElementById('pauseBtn').textContent = 'Pause';
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Initialize everything when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('loading').style.display = 'block';
+            
+            // Simulate loading time for Three.js
+            setTimeout(() => {
+                document.getElementById('loading').style.display = 'none';
+                initThreeJS();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

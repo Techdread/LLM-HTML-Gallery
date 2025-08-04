@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Futuristic Cityscape with Flying Vehicles</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            color: white;
+        }
+        
+        #canvas-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        button {
+            background: #4a6da7;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #5d8ac9;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    
+    <div id="info">
+        <h2>Futuristic Cityscape</h2>
+        <p>WASD: Move camera</p>
+        <p>Mouse: Look around</p>
+        <p>Scroll: Zoom in/out</p>
+    </div>
+    
+    <div id="controls">
+        <button id="view-top">Top View</button>
+        <button id="view-street">Street View</button>
+        <button id="view-follow">Follow Vehicle</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // Main ThreeJS application
+        let scene, camera, renderer, controls;
+        let vehicles = [];
+        let city = [];
+        let clock = new THREE.Clock();
+        let followVehicle = false;
+        let followedVehicleIndex = 0;
+
+        // Initialize the application
+        init();
+
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111122);
+            scene.fog = new THREE.FogExp2(0x111122, 0.002);
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+            camera.position.set(0, 200, 500);
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            // Add orbit controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 100;
+            controls.maxDistance = 2000;
+            
+            // Add lights
+            setupLights();
+            
+            // Create city
+            createCity();
+            
+            // Create flying vehicles
+            createVehicles();
+            
+            // Add event listeners
+            window.addEventListener('resize', onWindowResize);
+            
+            // Setup UI controls
+            document.getElementById('view-top').addEventListener('click', () => {
+                followVehicle = false;
+                camera.position.set(0, 1000, 0);
+                camera.lookAt(0, 0, 0);
+                controls.target.set(0, 0, 0);
+            });
+            
+            document.getElementById('view-street').addEventListener('click', () => {
+                followVehicle = false;
+                camera.position.set(0, 50, 300);
+                camera.lookAt(0, 50, 0);
+                controls.target.set(0, 50, 0);
+            });
+            
+            document.getElementById('view-follow').addEventListener('click', () => {
+                followVehicle = true;
+                followedVehicleIndex = Math.floor(Math.random() * vehicles.length);
+            });
+            
+            // Start animation loop
+            animate();
+        }
+
+        function setupLights() {
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambientLight);
+            
+            // Directional light (sun)
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(100, 300, 100);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 1000;
+            directionalLight.shadow.camera.left = -200;
+            directionalLight.shadow.camera.right = 200;
+            directionalLight.shadow.camera.top = 200;
+            directionalLight.shadow.camera.bottom = -200;
+            scene.add(directionalLight);
+            
+            // Hemisphere light
+            const hemisphereLight = new THREE.HemisphereLight(0x4488ff, 0xff8844, 0.3);
+            scene.add(hemisphereLight);
+            
+            // City lights
+            const cityLight = new THREE.PointLight(0xffdd99, 0.8, 100);
+            cityLight.position.set(0, 50, 0);
+            scene.add(cityLight);
+        }
+
+        function createCity() {
+            // Ground plane
+            const groundGeometry = new THREE.PlaneGeometry(2000, 2000);
+            const groundMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x333344,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+            
+            // Create buildings
+            const buildingColors = [
+                0x445588, 0x556699, 0x6677aa, 0x334477,
+                0x7788bb, 0x8899cc, 0x99aadd, 0xaabbee
+            ];
+            
+            const buildingMaterials = buildingColors.map(color => 
+                new THREE.MeshStandardMaterial({ 
+                    color: color,
+                    roughness: 0.7,
+                    metalness: 0.3
+                })
+            );
+            
+            // Add some emissive materials for windows
+            const windowMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffcc,
+                emissive: 0xffffee,
+                emissiveIntensity: 1.0,
+                roughness: 0.1,
+                metalness: 0.9
+            });
+            
+            // Create a grid of buildings
+            const gridSize = 20;
+            const spacing = 80;
+            const offset = (gridSize * spacing) / 2;
+            
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    // Skip some spaces for variety
+                    if (Math.random() < 0.2) continue;
+                    
+                    const height = 20 + Math.random() * 150;
+                    const width = 30 + Math.random() * 40;
+                    const depth = 30 + Math.random() * 40;
+                    
+                    const buildingGeometry = new THREE.BoxGeometry(width, height, depth);
+                    
+                    // Create main building
+                    const building = new THREE.Mesh(
+                        buildingGeometry, 
+                        buildingMaterials[Math.floor(Math.random() * buildingMaterials.length)]
+                    );
+                    
+                    building.position.x = i * spacing - offset + (Math.random() * 20 - 10);
+                    building.position.z = j * spacing - offset + (Math.random() * 20 - 10);
+                    building.position.y = height / 2;
+                    building.castShadow = true;
+                    building.receiveShadow = true;
+                    
+                    scene.add(building);
+                    city.push(building);
+                    
+                    // Add windows
+                    if (height > 40) {
+                        const windowRows = Math.floor(height / 15);
+                        const windowCols = Math.floor(width / 10);
+                        
+                        for (let row = 0; row < windowRows; row++) {
+                            for (let col = 0; col < windowCols; col++) {
+                                if (Math.random() < 0.7) continue; // Not all windows are lit
+                                
+                                const windowGeometry = new THREE.PlaneGeometry(5, 5);
+                                const windowMesh = new THREE.Mesh(windowGeometry, windowMaterial);
+                                
+                                windowMesh.position.x = building.position.x - width/2 + col * (width / windowCols) + 5;
+                                windowMesh.position.y = building.position.y - height/2 + row * (height / windowRows) + 10;
+                                windowMesh.position.z = building.position.z + depth/2 + 1;
+                                
+                                windowMesh.rotation.y = Math.PI;
+                                scene.add(windowMesh);
+                                
+                                // Add windows to the other side
+                                if (Math.random() < 0.5) {
+                                    const windowMesh2 = windowMesh.clone();
+                                    windowMesh2.position.z = building.position.z - depth/2 - 1;
+                                    windowMesh2.rotation.y = 0;
+                                    scene.add(windowMesh2);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Add some decorative elements
+                    if (Math.random() < 0.3) {
+                        addBuildingDetails(building, height, width, depth);
+                    }
+                }
+            }
+            
+            // Add some larger landmark buildings
+            addLandmarkBuildings();
+        }
+
+        function addBuildingDetails(building, height, width, depth) {
+            // Add antenna or spire
+            if (Math.random() < 0.5 && height > 80) {
+                const spireHeight = height * 0.2 + Math.random() * height * 0.3;
+                const spireGeometry = new THREE.CylinderGeometry(1, 3, spireHeight, 8);
+                const spireMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xaaaaaa,
+                    metalness: 0.9,
+                    roughness: 0.1
+                });
+                const spire = new THREE.Mesh(spireGeometry, spireMaterial);
+                
+                spire.position.x = building.position.x;
+                spire.position.y = building.position.y + height/2 + spireHeight/2;
+                spire.position.z = building.position.z;
+                
+                scene.add(spire);
+            }
+            
+            // Add some horizontal platforms
+            if (Math.random() < 0.4 && height > 60) {
+                const platformGeometry = new THREE.CylinderGeometry(
+                    width * 0.6, 
+                    width * 0.8, 
+                    2, 
+                    8
+                );
+                const platformMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x666677,
+                    metalness: 0.5,
+                    roughness: 0.5
+                });
+                const platform = new THREE.Mesh(platformGeometry, platformMaterial);
+                
+                platform.position.x = building.position.x;
+                platform.position.y = building.position.y - height/2 + height * 0.7;
+                platform.position.z = building.position.z;
+                
+                scene.add(platform);
+            }
+        }
+
+        function addLandmarkBuildings() {
+            // Central tower
+            const centralTowerHeight = 400;
+            const centralTowerGeometry = new THREE.CylinderGeometry(40, 60, centralTowerHeight, 16);
+            const centralTowerMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x99aadd,
+                metalness: 0.6,
+                roughness: 0.3
+            });
+            const centralTower = new THREE.Mesh(centralTowerGeometry, centralTowerMaterial);
+            
+            centralTower.position.y = centralTowerHeight / 2;
+            centralTower.castShadow = true;
+            scene.add(centralTower);
+            city.push(centralTower);
+            
+            // Add rings to the central tower
+            for (let i = 0; i < 5; i++) {
+                const ringHeight = centralTowerHeight * 0.2 + i * centralTowerHeight * 0.15;
+                const ringGeometry = new THREE.TorusGeometry(60 + i * 10, 5, 16, 32);
+                const ringMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xccddff,
+                    metalness: 0.8,
+                    roughness: 0.1,
+                    emissive: 0x4488ff,
+                    emissiveIntensity: 0.3
+                });
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                
+                ring.position.y = ringHeight;
+                ring.rotation.x = Math.PI / 2;
+                scene.add(ring);
+            }
+            
+            // Add some other landmark buildings around the city
+            const landmarkPositions = [
+                { x: -500, z: -500 },
+                { x: 500, z: -500 },
+                { x: -500, z: 500 },
+                { x: 500, z: 500 }
+            ];
+            
+            landmarkPositions.forEach(pos => {
+                const height = 250 + Math.random() * 150;
+                const shape = new THREE.Shape();
+                const sides = 6 + Math.floor(Math.random() * 6);
+                const radius = 30 + Math.random() * 20;
+                
+                shape.moveTo(radius, 0);
+                for (let i = 1; i <= sides; i++) {
+                    const angle = (i / sides) * Math.PI * 2;
+                    shape.lineTo(
+                        Math.cos(angle) * radius,
+                        Math.sin(angle) * radius
+                    );
+                }
+                
+                const extrudeSettings = {
+                    steps: 1,
+                    depth: height,
+                    bevelEnabled: true,
+                    bevelThickness: 5,
+                    bevelSize: 5,
+                    bevelOffset: 0,
+                    bevelSegments: 3
+                };
+                
+                const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+                const material = new THREE.MeshStandardMaterial({ 
+                    color: 0x88aadd,
+                    metalness: 0.7,
+                    roughness: 0.2
+                });
+                
+                const building = new THREE.Mesh(geometry, material);
+                building.position.set(pos.x, height / 2, pos.z);
+                building.rotation.y = Math.random() * Math.PI * 2;
+                building.castShadow = true;
+                scene.add(building);
+                city.push(building);
+                
+                // Add a light at the top
+                const topLight = new THREE.PointLight(0xffaa88, 1, 200);
+                topLight.position.set(pos.x, height + 10, pos.z);
+                scene.add(topLight);
+            });
+        }
+
+        function createVehicles() {
+            // Create several flying vehicles with different paths
+            const vehicleCount = 12;
+            
+            for (let i = 0; i < vehicleCount; i++) {
+                createVehicle(i);
+            }
+        }
+
+        function createVehicle(index) {
+            // Create a simple vehicle model
+            const vehicleGroup = new THREE.Group();
+            
+            // Vehicle body
+            const bodyGeometry = new THREE.BoxGeometry(15, 5, 30);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x333333,
+                metalness: 0.8,
+                roughness: 0.2
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+            vehicleGroup.add(body);
+            
+            // Cockpit
+            const cockpitGeometry = new THREE.SphereGeometry(4, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+            const cockpitMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x88ccff,
+                metalness: 0.9,
+                roughness: 0.1,
+                transparent: true,
+                opacity: 0.7
+            });
+            const cockpit = new THREE.Mesh(cockpitGeometry, cockpitMaterial);
+            cockpit.position.set(0, 3, -5);
+            cockpit.rotation.x = Math.PI;
+            vehicleGroup.add(cockpit);
+            
+            // Wings
+            const wingGeometry = new THREE.BoxGeometry(30, 1, 10);
+            const wingMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x555555,
+                metalness: 0.7,
+                roughness: 0.3
+            });
+            const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            leftWing.position.set(-20, 0, 0);
+            vehicleGroup.add(leftWing);
+            
+            const rightWing = leftWing.clone();
+            rightWing.position.set(20, 0, 0);
+            vehicleGroup.add(rightWing);
+            
+            // Engine glow
+            const engineLight = new THREE.PointLight(0x44aaff, 2, 50);
+            engineLight.position.set(0, 0, 15);
+            vehicleGroup.add(engineLight);
+            
+            // Add some decorative elements
+            const detailGeometry = new THREE.ConeGeometry(2, 5, 4);
+            const detailMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xaaaaaa,
+                metalness: 0.9,
+                roughness: 0.1
+            });
+            
+            for (let i = 0; i < 4; i++) {
+                const detail = new THREE.Mesh(detailGeometry, detailMaterial);
+                detail.position.set(
+                    (i % 2 === 0 ? -8 : 8),
+                    0,
+                    -10 + (i < 2 ? 0 : 5)
+                );
+                detail.rotation.x = Math.PI / 2;
+                vehicleGroup.add(detail);
+            }
+            
+            // Set initial position based on index
+            const angle = (index / vehicles.length) * Math.PI * 2;
+            const radius = 300 + Math.random() * 200;
+            
+            vehicleGroup.position.x = Math.cos(angle) * radius;
+            vehicleGroup.position.y = 100 + Math.random() * 200;
+            vehicleGroup.position.z = Math.sin(angle) * radius;
+            
+            // Add to scene
+            scene.add(vehicleGroup);
+            
+            // Store vehicle data
+            vehicles.push({
+                group: vehicleGroup,
+                speed: 0.5 + Math.random() * 0.5,
+                pathPoints: generatePathPoints(index),
+                currentPathIndex: 0,
+                nextPathIndex: 1
+            });
+        }
+
+        function generatePathPoints(index) {
+            const points = [];
+            const pointCount = 20 + Math.floor(Math.random() * 10);
+            const centerOffset = (index % 3) * 100 - 100; // Vary paths slightly
+            
+            for (let i = 0; i < pointCount; i++) {
+                const angle = (i / pointCount) * Math.PI * 2;
+                const radius = 200 + Math.random() * 300;
+                const height = 100 + Math.random() * 300;
+                
+                points.push(new THREE.Vector3(
+                    Math.cos(angle) * radius + centerOffset,
+                    height,
+                    Math.sin(angle) * radius + centerOffset
+                ));
+            }
+            
+            // Add some vertical movement
+            for (let i = 0; i < pointCount; i += 2) {
+                points[i].y += 100;
+            }
+            
+            return points;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta();
+            
+            // Update vehicles
+            updateVehicles(delta);
+            
+            // Update camera if following a vehicle
+            if (followVehicle && vehicles.length > 0) {
+                const vehicle = vehicles[followedVehicleIndex];
+                const vehiclePos = vehicle.group.position;
+                
+                // Calculate position behind and above the vehicle
+                const targetPos = new THREE.Vector3();
+                targetPos.copy(vehiclePos);
+                
+                // Get vehicle forward direction
+                const lookAtPoint = new THREE.Vector3();
+                if (vehicle.nextPathIndex < vehicle.pathPoints.length) {
+                    lookAtPoint.copy(vehicle.pathPoints[vehicle.nextPathIndex]);
+                } else {
+                    lookAtPoint.copy(vehicle.pathPoints[0]);
+                }
+                
+                const forward = new THREE.Vector3().subVectors(lookAtPoint, vehiclePos).normalize();
+                const up = new THREE.Vector3(0, 1, 0);
+                const right = new THREE.Vector3().crossVectors(up, forward).normalize();
+                const cameraOffset = new THREE.Vector3().copy(right).multiplyScalar(30);
+                cameraOffset.add(new THREE.Vector3(0, 20, 0));
+                cameraOffset.add(new THREE.Vector3().copy(forward).multiplyScalar(-50));
+                
+                targetPos.add(cameraOffset);
+                
+                // Smooth camera movement
+                camera.position.lerp(targetPos, 0.1);
+                camera.lookAt(vehiclePos);
+                controls.target.copy(vehiclePos);
+            }
+            
+            // Update controls
+            controls.update();
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+
+        function updateVehicles(delta) {
+            vehicles.forEach(vehicle => {
+                const { group, pathPoints, speed } = vehicle;
+                
+                // Get current and next path points
+                const currentIndex = vehicle.currentPathIndex;
+                const nextIndex = vehicle.nextPathIndex;
+                
+                const currentPoint = pathPoints[currentIndex];
+                const nextPoint = pathPoints[nextIndex];
+                
+                // Calculate direction to next point
+                const direction = new THREE.Vector3().subVectors(nextPoint, currentPoint).normalize();
+                const distanceToNext = group.position.distanceTo(nextPoint);
+                
+                // Move vehicle
+                group.position.add(direction.clone().multiplyScalar(speed));
+                
+                // Rotate vehicle to face direction of movement
+                if (distanceToNext > 5) {
+                    group.quaternion.slerp(
+                        new THREE.Quaternion().setFromUnitVectors(
+                            new THREE.Vector3(0, 0, -1),
+                            direction
+                        ),
+                        0.1
+                    );
+                }
+            
+                // Check if reached next point
+                if (distanceToNext < 10) {
+                    vehicle.currentPathIndex = nextIndex;
+                    vehicle.nextPathIndex = (nextIndex + 1) % pathPoints.length;
+                }
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>

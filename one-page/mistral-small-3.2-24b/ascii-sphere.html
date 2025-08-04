@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Sphere</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        let angle = 0;
+        const chars = '0123456789';
+        let size = 20;
+        let rows, cols;
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            textSize(size);
+            textFont('Courier New');
+            noStroke();
+            calculateGrid();
+        }
+
+        function draw() {
+            background(0);
+            angle += 0.01;
+
+            translate(width / 2, height / 2);
+
+            for (let j = 0; j < rows; j++) {
+                for (let i = 0; i < cols; i++) {
+                    const x = (i - cols / 2) * size;
+                    const y = (j - rows / 2) * size;
+
+                    // Convert 2D coordinates to 3D coordinates on the sphere
+                    const theta = map(x, -width / 2, width / 2, -PI, PI);
+                    const phi = map(y, -height / 2, height / 2, -PI / 2, PI / 2);
+                    const r = 200; // radius of the sphere
+
+                    const x3d = r * sin(phi) * cos(theta);
+                    const y3d = r * sin(phi) * sin(theta);
+                    const z3d = r * cos(phi);
+
+                    // Rotate the sphere
+                    const x3dRotated = x3d * cos(angle) - z3d * sin(angle);
+                    const z3dRotated = x3d * sin(angle) + z3d * cos(angle);
+
+                    // Calculate the distance from the viewer
+                    const distance = sqrt(x3dRotated * x3dRotated + y3d * y3d + z3dRotated * z3dRotated);
+
+                    // Calculate the brightness based on the distance
+                    const brightness = map(distance, r, r * 1.5, 255, 0);
+
+                    // Draw the ASCII character
+                    fill(brightness);
+                    text(chars[floor(random(chars.length))], x, y);
+                }
+            }
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+            calculateGrid();
+        }
+
+        function calculateGrid() {
+            size = floor(min(width, height) / 30);
+            textSize(size);
+            rows = floor(height / size);
+            cols = floor(width / size);
+        }
+    </script>
+</body>
+
+</html>

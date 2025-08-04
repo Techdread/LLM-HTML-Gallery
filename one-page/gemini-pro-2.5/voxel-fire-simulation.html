@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voxel Fire Simulation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #222;
+        }
+
+        #fireCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            gap: 10px;
+            z-index: 1; /* Ensure controls are above the canvas */
+        }
+
+        .button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .button:hover {
+            background-color: #367c39;
+            box-shadow: 0 3px 7px rgba(0,0,0,0.3);
+        }
+
+        .button:active {
+            background-color: #2b5e2e;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+
+        #paramControls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        #paramControls label {
+            color: #333;
+            font-size: 14px;
+        }
+
+        #paramControls input[type="range"] {
+            width: 150px;
+        }
+
+        #message-box {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 10;
+            font-size: 16px;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+
+        .show-message {
+            opacity: 1;
+        }
+
+    </style>
+</head>
+<body>
+    <canvas id="fireCanvas"></canvas>
+    <div id="controls">
+        <button id="resetButton" class="button">Reset Fire</button>
+        <button id="startButton" class="button">Start Fire</button>
+    </div>
+    <div id="paramControls">
+        <label for="fireSpeed">Fire Speed:</label>
+        <input type="range" id="fireSpeed" min="0" max="100" value="50">
+        <label for="spreadProbability">Spread Probability:</label>
+        <input type="range" id="spreadProbability" min="0" max="100" value="50">
+        <label for="smokeDensity">Smoke Density:</label>
+        <input type="range" id="smokeDensity" min="0" max="100" value="50">
+    </div>
+    <div id="message-box"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.139.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.139.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // --- DOM Elements ---
+        const canvas = document.getElementById('fireCanvas');
+        const resetButton = document.getElementById('resetButton');
+        const startButton = document.getElementById('startButton');
+        const fireSpeedSlider = document.getElementById('fireSpeed');
+        const spreadProbabilitySlider = document.getElementById('spreadProbability');
+        const smokeDensitySlider = document.getElementById('smokeDensity');
+        const messageBox = document.getElementById('message-box');
+
+        // --- Three.js Setup ---
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas });
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+        // --- Simulation Constants and Variables ---
+        const gridSize = 20;
+        const voxelSize = 1;
+        const grid = [];
+        const fireSources = []; // Array to store initial fire positions
+        let voxels = []; // Array to store all voxel meshes for efficient raycasting
+        let burningCount = 0; // Keep track of burning voxels for performance
+        let frameCounter = 0; // Counter to regulate non-critical effects
+
+        // --- Materials ---
+        const flammableMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Brown (wood)
+        const burningMaterials = [ // Array for flickering effect
+            new THREE.MeshLambertMaterial({ color: 0xff4500 }), // Orange Red
+            new THREE.MeshLambertMaterial({ color: 0xff6347 }), // Tomato
+            new THREE.MeshLambertMaterial({ color: 0xffa500 })  // Orange
+        ];
+        const burntMaterial = new THREE.MeshLambertMaterial({ color: 0x222222 }); // Very Dark Grey
+        // const waterMaterial = new THREE.MeshLambertMaterial({ color: 0x0000ff, transparent: true, opacity: 0.5 }); // Blue, semi-transparent (unused currently)
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0x606060); // Slightly brighter ambient light
+        scene.add(ambientLight);
+
+        const pointLight = new THREE.PointLight(0xffffff, 1, gridSize * voxelSize * 3); // Adjusted intensity and distance
+        pointLight.position.set(gridSize * voxelSize / 2, gridSize * voxelSize * 1.5, gridSize * voxelSize * 1.5); // Adjusted position
+        scene.add(pointLight);
+
+        // --- Particle System (for smoke) ---
+        let smokeParticles;
+        let smokeGeometry;
+        let smokeMaterial;
+        const maxSmokeParticles = 5000; // Increased particle limit
+        let numSmokeParticles = 0;
+        // **FIX:** Changed from const to let to allow reassignment in initSmoke
+        let smokePositions = [];
+        let smokeVelocities = [];
+        let smokeLifetimes = [];
+        let smokeSizes = [];
+        let smokeOpacities = [];
+
+        /**
+         * Initializes the smoke particle system.
+         * Creates the BufferGeometry and PointsMaterial.
+         */
+        function initSmoke() {
+            // If smoke particles already exist, remove them from the scene and dispose of geometry/material
+            if (smokeParticles) {
+                scene.remove(smokeParticles);
+                smokeGeometry.dispose();
+                smokeMaterial.dispose();
+            }
+
+            smokeGeometry = new THREE.BufferGeometry();
+            // Assign new Float32Arrays to the 'let' variables
+            smokePositions = new Float32Array(maxSmokeParticles * 3);
+            smokeVelocities = new Float32Array(maxSmokeParticles * 3);
+            smokeLifetimes = new Float32Array(maxSmokeParticles);
+            smokeSizes = new Float32Array(maxSmokeParticles);
+            smokeOpacities = new Float32Array(maxSmokeParticles);
+
+            // Set attributes for the geometry
+            smokeGeometry.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
+            smokeGeometry.setAttribute('velocity', new THREE.BufferAttribute(smokeVelocities, 3)); // Custom attribute for velocity
+            smokeGeometry.setAttribute('lifetime', new THREE.BufferAttribute(smokeLifetimes, 1)); // Custom attribute for lifetime
+            smokeGeometry.setAttribute('size', new THREE.BufferAttribute(smokeSizes, 1));
+            smokeGeometry.setAttribute('opacity', new THREE.BufferAttribute(smokeOpacities, 1));
+
+            // Define the material for the smoke particles
+            smokeMaterial = new THREE.PointsMaterial({
+                color: 0xaaaaaa, // Grey smoke
+                size: 0.1, // Initial size
+                transparent: true,
+                opacity: 0.6, // Initial opacity
+                sizeAttenuation: true, // Particles shrink with distance
+                depthWrite: false // Prevents particles from obscuring objects behind them incorrectly
+            });
+
+            // Create the Points object and add it to the scene
+            smokeParticles = new THREE.Points(smokeGeometry, smokeMaterial);
+            scene.add(smokeParticles);
+            numSmokeParticles = 0; // Reset particle count
+        }
+
+        /**
+         * Adds a single smoke particle to the system at a given position.
+         * @param {THREE.Vector3} position - The starting position of the particle.
+         */
+        function addSmokeParticle(position) {
+            if (numSmokeParticles >= maxSmokeParticles) return; // Don't add if max capacity reached
+
+            const particleIndex = numSmokeParticles;
+
+            // Position: Start near the voxel center with slight random offset
+            smokePositions[particleIndex * 3] = position.x + (Math.random() - 0.5) * 0.3;
+            smokePositions[particleIndex * 3 + 1] = position.y + (Math.random() - 0.5) * 0.3;
+            smokePositions[particleIndex * 3 + 2] = position.z + (Math.random() - 0.5) * 0.3;
+
+            // Velocity: Primarily upwards, with slight random horizontal drift
+            const baseVelocityY = 0.015;
+            const horizontalSpread = 0.008;
+            smokeVelocities[particleIndex * 3] = (Math.random() - 0.5) * horizontalSpread;
+            smokeVelocities[particleIndex * 3 + 1] = Math.random() * 0.02 + baseVelocityY; // Random upward speed
+            smokeVelocities[particleIndex * 3 + 2] = (Math.random() - 0.5) * horizontalSpread;
+
+            // Lifetime: Random duration
+            smokeLifetimes[particleIndex] = Math.random() * 4 + 3; // Lifespan between 3 and 7 seconds
+
+            // Size: Random initial size
+            smokeSizes[particleIndex] = Math.random() * 0.15 + 0.05; // Size between 0.05 and 0.2
+
+            // Opacity: Start semi-transparent
+            smokeOpacities[particleIndex] = Math.random() * 0.3 + 0.4; // Opacity between 0.4 and 0.7
+
+            numSmokeParticles++; // Increment the count of active particles
+        }
+
+        /**
+         * Updates the state of all active smoke particles (position, lifetime, size, opacity).
+         * Removes expired particles efficiently.
+         */
+        function updateSmoke() {
+            if (numSmokeParticles === 0) return; // Skip if no particles
+
+            const positionAttribute = smokeGeometry.attributes.position;
+            const velocityAttribute = smokeGeometry.attributes.velocity;
+            const lifetimeAttribute = smokeGeometry.attributes.lifetime;
+            const sizeAttribute = smokeGeometry.attributes.size;
+            const opacityAttribute = smokeGeometry.attributes.opacity;
+
+            const positions = positionAttribute.array;
+            const velocities = velocityAttribute.array;
+            const lifetimes = lifetimeAttribute.array;
+            const sizes = sizeAttribute.array;
+            const opacities = opacityAttribute.array;
+
+            const timeDelta = 0.016; // Approximate time per frame (adjust if needed)
+
+            let particleIndex = 0;
+            while (particleIndex < numSmokeParticles) {
+                // Update position based on velocity and time delta
+                positions[particleIndex * 3] += velocities[particleIndex * 3] * timeDelta * 60; // Scale velocity by frame rate
+                positions[particleIndex * 3 + 1] += velocities[particleIndex * 3 + 1] * timeDelta * 60;
+                positions[particleIndex * 3 + 2] += velocities[particleIndex * 3 + 2] * timeDelta * 60;
+
+                // Decrease lifetime
+                lifetimes[particleIndex] -= timeDelta;
+
+                if (lifetimes[particleIndex] <= 0) {
+                    // Remove particle by swapping with the last active particle
+                    const lastParticleIndex = numSmokeParticles - 1;
+                    if (particleIndex < lastParticleIndex) {
+                        // Copy data from the last particle to the current index
+                        positions[particleIndex * 3] = positions[lastParticleIndex * 3];
+                        positions[particleIndex * 3 + 1] = positions[lastParticleIndex * 3 + 1];
+                        positions[particleIndex * 3 + 2] = positions[lastParticleIndex * 3 + 2];
+
+                        velocities[particleIndex * 3] = velocities[lastParticleIndex * 3];
+                        velocities[particleIndex * 3 + 1] = velocities[lastParticleIndex * 3 + 1];
+                        velocities[particleIndex * 3 + 2] = velocities[lastParticleIndex * 3 + 2];
+
+                        lifetimes[particleIndex] = lifetimes[lastParticleIndex];
+                        sizes[particleIndex] = sizes[lastParticleIndex];
+                        opacities[particleIndex] = opacities[lastParticleIndex];
+                    }
+                    numSmokeParticles--; // Decrease the count of active particles
+                    // Don't increment particleIndex, as the swapped particle needs processing
+                } else {
+                    // Update size and opacity for living particles
+                    const maxLifetime = 7; // Should match the max possible lifetime in addSmokeParticle
+                    const normalizedLifetime = Math.max(0, lifetimes[particleIndex] / maxLifetime); // 0 to 1
+
+                    sizes[particleIndex] = Math.max(0, sizes[particleIndex] + 0.001); // Slightly expand over time
+                    opacities[particleIndex] = Math.max(0, normalizedLifetime * 0.8); // Fade out as lifetime decreases
+
+                    particleIndex++; // Move to the next particle
+                }
+            }
+
+            // Update the geometry attributes
+            positionAttribute.needsUpdate = true;
+            // velocityAttribute.needsUpdate = true; // Velocity doesn't change after creation in this simple model
+            lifetimeAttribute.needsUpdate = true;
+            sizeAttribute.needsUpdate = true;
+            opacityAttribute.needsUpdate = true;
+
+            // Important: Update the draw range to only render active particles
+            smokeGeometry.setDrawRange(0, numSmokeParticles);
+        }
+
+
+        // --- Voxel Grid Creation ---
+        /**
+         * Creates the 3D grid of voxels and initializes their properties.
+         */
+        function createVoxelGrid() {
+            voxels = []; // Clear previous voxels if any
+            for (let x = 0; x < gridSize; x++) {
+                grid[x] = [];
+                for (let y = 0; y < gridSize; y++) {
+                    grid[x][y] = [];
+                    for (let z = 0; z < gridSize; z++) {
+                        const voxelGeometry = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
+                        const voxelMesh = new THREE.Mesh(voxelGeometry, flammableMaterial);
+                        voxelMesh.position.set(
+                            (x - gridSize / 2 + 0.5) * voxelSize, // Center the grid
+                            (y + 0.5) * voxelSize, // Start grid above y=0
+                            (z - gridSize / 2 + 0.5) * voxelSize // Center the grid
+                        );
+                        voxelMesh.castShadow = true;
+                        voxelMesh.receiveShadow = true;
+                        scene.add(voxelMesh);
+
+                        const voxelData = {
+                            mesh: voxelMesh,
+                            x: x, y: y, z: z, // Store grid coordinates
+                            isFlammable: true,
+                            isOnFire: false,
+                            fuel: Math.random() * 50 + 50, // Random fuel (50-100 frames)
+                            neighbors: [],
+                            // originalColor: flammableMaterial.color.clone(), // Not strictly needed if resetting material
+                        };
+                        grid[x][y][z] = voxelData;
+                        voxels.push(voxelMesh); // Store the mesh for efficient raycasting
+                    }
+                }
+            }
+
+            // --- Neighbor Assignment (after all voxels are created) ---
+            for (let x = 0; x < gridSize; x++) {
+                for (let y = 0; y < gridSize; y++) {
+                    for (let z = 0; z < gridSize; z++) {
+                        const voxelData = grid[x][y][z];
+                        // Get neighbors (6 directions), handling boundary conditions
+                        voxelData.neighbors.push(getNeighbor(x - 1, y, z));
+                        voxelData.neighbors.push(getNeighbor(x + 1, y, z));
+                        voxelData.neighbors.push(getNeighbor(x, y - 1, z));
+                        voxelData.neighbors.push(getNeighbor(x, y + 1, z));
+                        voxelData.neighbors.push(getNeighbor(x, y, z - 1));
+                        voxelData.neighbors.push(getNeighbor(x, y, z + 1));
+                        voxelData.neighbors = voxelData.neighbors.filter(n => n !== null); // Remove nulls for boundary voxels
+                    }
+                }
+            }
+        }
+
+        /**
+         * Retrieves a neighbor voxel data object from the grid, handling boundaries.
+         * @param {number} x - The x-coordinate of the potential neighbor.
+         * @param {number} y - The y-coordinate of the potential neighbor.
+         * @param {number} z - The z-coordinate of the potential neighbor.
+         * @returns {object|null} The neighbor voxel data object or null if out of bounds.
+         */
+        function getNeighbor(x, y, z) {
+            if (x >= 0 && x < gridSize && y >= 0 && y < gridSize && z >= 0 && z < gridSize) {
+                return grid[x][y][z];
+            }
+            return null; // Out of bounds
+        }
+
+
+        // --- Initialization ---
+        /**
+         * Initializes the entire simulation: grid, smoke, camera, controls.
+         */
+        function initialize() {
+            createVoxelGrid();
+            initSmoke(); // Initialize smoke system
+            // Set camera position further back and slightly elevated
+            camera.position.set(gridSize * voxelSize * 0.8, gridSize * voxelSize * 1.2, gridSize * voxelSize * 1.8);
+            // Target the center of the grid base
+            controls.target.set(0, gridSize * voxelSize / 3, 0);
+            controls.enableDamping = true; // Add smooth camera movement
+            controls.dampingFactor = 0.1;
+            controls.update();
+            resizeRendererToDisplaySize(renderer); // Initial resize
+        }
+
+        /**
+         * Resizes the renderer and updates the camera aspect ratio on window resize.
+         * @param {THREE.WebGLRenderer} renderer - The renderer instance.
+         * @returns {boolean} True if a resize occurred, false otherwise.
+         */
+        function resizeRendererToDisplaySize(renderer) {
+            const canvas = renderer.domElement;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const needResize = canvas.width !== width || canvas.height !== height;
+            if (needResize) {
+                renderer.setSize(width, height, false); // Use false to avoid setting style size
+                camera.aspect = width / height;
+                camera.updateProjectionMatrix();
+            }
+            return needResize;
+        }
+
+        /**
+         * Displays a temporary message in the message box.
+         * @param {string} text - The message to display.
+         * @param {number} [duration=3000] - How long to display the message (in milliseconds).
+         */
+        function showMessage(text, duration = 3000) {
+            messageBox.textContent = text;
+            messageBox.classList.add('show-message');
+            // Clear previous timeout if any
+            if (messageBox.timeoutId) {
+                clearTimeout(messageBox.timeoutId);
+            }
+            messageBox.timeoutId = setTimeout(() => {
+                messageBox.classList.remove('show-message');
+                messageBox.timeoutId = null;
+            }, duration);
+        }
+
+
+        // --- Raycasting for Interaction ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        /**
+         * Handles mouse click events to potentially start a fire on a voxel.
+         * @param {MouseEvent} event - The mouse click event.
+         */
+        function handleMouseClick(event) {
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Update the picking ray with the camera and mouse position
+            raycaster.setFromCamera(mouse, camera);
+
+            // Calculate objects intersecting the picking ray
+            const intersects = raycaster.intersectObjects(voxels); // Use the stored voxel meshes
+
+            if (intersects.length > 0) {
+                const intersection = intersects[0];
+                const clickedMesh = intersection.object;
+                const gridVoxelData = findVoxelDataByMesh(clickedMesh); // Find the corresponding data object
+
+                if (gridVoxelData && gridVoxelData.isFlammable && !gridVoxelData.isOnFire) {
+                    startFire(gridVoxelData); // Ignite the clicked voxel
+                    showMessage("Fire started!");
+                } else if (gridVoxelData && gridVoxelData.isOnFire) {
+                    // Optional: Click on burning voxel to extinguish?
+                    // extinguishVoxel(gridVoxelData);
+                    // showMessage("Fire extinguished!");
+                }
+            }
+        }
+
+        /**
+         * Finds the voxel data object in the grid corresponding to a given mesh.
+         * @param {THREE.Mesh} mesh - The mesh to search for.
+         * @returns {object|null} The voxel data object or null if not found.
+         */
+        function findVoxelDataByMesh(mesh) {
+            // This is inefficient for large grids. Consider storing a map from mesh.uuid to voxel data.
+            for (let x = 0; x < gridSize; x++) {
+                for (let y = 0; y < gridSize; y++) {
+                    for (let z = 0; z < gridSize; z++) {
+                        if (grid[x][y][z] && grid[x][y][z].mesh === mesh) {
+                            return grid[x][y][z];
+                        }
+                    }
+                }
+            }
+            return null; // Should not happen if mesh is from 'voxels' array
+        }
+
+        /**
+         * Sets a voxel's state to burning.
+         * @param {object} voxelData - The data object for the voxel to ignite.
+         */
+        function startFire(voxelData) {
+            if (!voxelData || !voxelData.isFlammable || voxelData.isOnFire) return; // Safety checks
+
+            voxelData.isOnFire = true;
+            voxelData.mesh.material = burningMaterials[Math.floor(Math.random() * burningMaterials.length)]; // Start with random burning color
+            voxelData.fuel = Math.random() * 50 + 50; // Reset fuel when ignited
+            burningCount++;
+
+            // Store the grid coordinates, not the mesh position, for reliable restart
+            const existingSource = fireSources.find(src => src.x === voxelData.x && src.y === voxelData.y && src.z === voxelData.z);
+            if (!existingSource) {
+                fireSources.push({ x: voxelData.x, y: voxelData.y, z: voxelData.z }); // Store grid coordinates
+            }
+        }
+
+
+        // --- Simulation Parameters ---
+        let fireSpeedFactor = 0.5; // Derived from slider (0 to 1)
+        let spreadProbability = 50; // Probability of fire spreading (0-100)
+        let smokeDensityFactor = 0.5; // Derived from slider (0 to 1)
+
+        // Update factors when sliders change
+        fireSpeedSlider.addEventListener('input', (event) => {
+            // Map slider value (0-100) to a factor (e.g., 0.1 to 2.0)
+            // Lower value = slower burn/spread
+            fireSpeedFactor = 0.1 + (parseInt(event.target.value) / 100) * 1.9;
+        });
+
+        spreadProbabilitySlider.addEventListener('input', (event) => {
+            spreadProbability = parseInt(event.target.value);
+        });
+
+        smokeDensitySlider.addEventListener('input', (event) => {
+            // Map slider value (0-100) to a factor (e.g., 0.0 to 1.0)
+            smokeDensityFactor = parseInt(event.target.value) / 100;
+        });
+
+
+       // --- Fire Spread Logic ---
+       /**
+        * Updates the fire simulation state for one frame.
+        * Handles fuel consumption, burning out, and spreading.
+        */
+       function updateFire() {
+            if (burningCount === 0) return; // Optimization: Don't update if no fire
+
+            let voxelsToIgnite = []; // Store neighbors to ignite in the next step
+
+            // Iterate through the grid - potentially optimize this later
+            for (let x = 0; x < gridSize; x++) {
+                for (let y = 0; y < gridSize; y++) {
+                    for (let z = 0; z < gridSize; z++) {
+                        const voxelData = grid[x][y][z];
+
+                        if (voxelData.isOnFire) {
+                            // --- Fuel Consumption ---
+                            voxelData.fuel -= (1 * fireSpeedFactor); // Consume fuel based on speed factor
+                            if (voxelData.fuel <= 0) {
+                                // --- Burn Out ---
+                                voxelData.isOnFire = false;
+                                voxelData.isFlammable = false; // Can't burn again
+                                voxelData.mesh.material = burntMaterial;
+                                burningCount--;
+                            } else {
+                                // --- Flicker Effect ---
+                                if (frameCounter % 10 === 0) { // Change color periodically
+                                     voxelData.mesh.material = burningMaterials[Math.floor(Math.random() * burningMaterials.length)];
+                                }
+
+                                // --- Spread Fire ---
+                                // Check neighbors for potential spread
+                                for (const neighborData of voxelData.neighbors) {
+                                    if (neighborData.isFlammable && !neighborData.isOnFire) {
+                                        // Probability check for spreading
+                                        const chance = spreadProbability * fireSpeedFactor; // Spread chance influenced by speed
+                                        if (Math.random() * 100 < chance) {
+                                            // Don't ignite immediately, add to list
+                                            if (!voxelsToIgnite.includes(neighborData)) {
+                                                voxelsToIgnite.push(neighborData);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Ignite Queued Voxels ---
+            // Ignite neighbors after checking all current fires to prevent chain reactions within a single frame
+            voxelsToIgnite.forEach(neighborData => {
+                startFire(neighborData); // Ignite the neighbor
+            });
+        }
+
+
+        // --- Main Animation Loop ---
+        /**
+         * The main animation loop, called recursively via requestAnimationFrame.
+         */
+        function animate() {
+            requestAnimationFrame(animate); // Request the next frame
+
+            resizeRendererToDisplaySize(renderer); // Check for resize
+            controls.update(); // Update orbit controls (needed for damping)
+            updateFire(); // Update fire simulation logic
+
+            // --- Smoke Emission ---
+            // Emit smoke only from currently burning voxels, regulated by density and frame counter
+            if (frameCounter % 3 === 0) { // Emit smoke less frequently
+                for (let x = 0; x < gridSize; x++) {
+                    for (let y = 0; y < gridSize; y++) {
+                        for (let z = 0; z < gridSize; z++) {
+                            const voxelData = grid[x][y][z];
+                            // Emit smoke if burning and random chance based on density passes
+                            if (voxelData.isOnFire && Math.random() < smokeDensityFactor * 0.5) { // Adjust multiplier for desired density
+                                const pos = voxelData.mesh.position;
+                                addSmokeParticle(pos);
+                            }
+                        }
+                    }
+                }
+            }
+
+            updateSmoke(); // Update smoke particle positions and lifetimes
+
+            renderer.render(scene, camera); // Render the scene
+            frameCounter++; // Increment frame counter
+        }
+
+        // --- Event Listeners ---
+        window.addEventListener('resize', () => {
+            resizeRendererToDisplaySize(renderer);
+        });
+
+        canvas.addEventListener('click', handleMouseClick);
+
+        resetButton.addEventListener('click', () => {
+            // Reset the entire scene state
+            for (let x = 0; x < gridSize; x++) {
+                for (let y = 0; y < gridSize; y++) {
+                    for (let z = 0; z < gridSize; z++) {
+                        const voxelData = grid[x][y][z];
+                        voxelData.isOnFire = false;
+                        voxelData.isFlammable = true;
+                        voxelData.fuel = Math.random() * 50 + 50; // Reset fuel
+                        voxelData.mesh.material = flammableMaterial; // Reset material
+                        // Position is already set, no need to reset mesh position
+                    }
+                }
+            }
+            burningCount = 0; // Reset burning counter
+            fireSources.length = 0; // Clear stored fire start points
+            initSmoke(); // Re-initialize the smoke system (clears existing particles)
+            showMessage("Fire reset!");
+        });
+
+        startButton.addEventListener('click', () => {
+            if (fireSources.length > 0) {
+                // Restart fire from the stored grid coordinates
+                fireSources.forEach(sourceCoords => {
+                    const voxelData = getNeighbor(sourceCoords.x, sourceCoords.y, sourceCoords.z);
+                    if (voxelData) { // Check if voxel still exists at that coordinate
+                         startFire(voxelData);
+                    }
+                });
+                showMessage("Restarting fire from initial points!");
+            } else {
+                showMessage("Click on the grid to start a fire first.");
+            }
+        });
+
+        // --- Start Everything ---
+        initialize(); // Set up the scene and grid
+        animate(); // Start the animation loop
+    </script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Sphere</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: monospace;
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        let points = [];
+        const totalPoints = 800;
+        const radius = 150;
+        const rotationSpeed = 0.003;
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight, WEBGL);
+            colorMode(RGB);
+
+            // Generate points on a sphere
+            for (let i = 0; i < totalPoints; i++) {
+                // Use spherical coordinates to distribute points evenly
+                const phi = acos(1 - 2 * (i / (totalPoints - 1)));
+                const theta = sqrt(totalPoints * PI) * phi;
+
+                // Convert to Cartesian coordinates
+                const x = radius * sin(phi) * cos(theta);
+                const y = radius * sin(phi) * sin(theta);
+                const z = radius * cos(phi);
+
+                // Random ASCII number (0-9)
+                const char = floor(random(10)).toString();
+
+                points.push({ x, y, z, char });
+            }
+        }
+
+        function draw() {
+            background(0);
+
+            // Set camera position
+            perspective(PI / 3, width / height, 0.1, 1000);
+
+            // Rotate around Y and X axes
+            rotateY(frameCount * rotationSpeed);
+            rotateX(frameCount * rotationSpeed * 0.5);
+
+            // Sort points by Z for proper depth rendering
+            points.sort((a, b) => {
+                return a.z - b.z;
+            });
+
+            // Draw each point
+            for (const point of points) {
+                const x = point.x;
+                const y = point.y;
+                const z = point.z;
+
+                // Calculate brightness based on Z coordinate
+                // Map Z from [-radius, radius] to [100, 255]
+                const brightness = map(z, -radius, radius, 100, 255);
+
+                fill(brightness);
+                noStroke();
+
+                // Draw character at point position
+                push();
+                translate(x, y, z);
+                textSize(16);
+                textAlign(CENTER, CENTER);
+                text(point.char, 0, 0);
+                pop();
+            }
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Container with 55 Boxes</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: sans-serif; background-color: #111; color: #fff; }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            min-width: 200px;
+        }
+        #info h3 { margin-top: 0; }
+        #info p { margin: 5px 0; }
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #555;
+        }
+        canvas { display: block; } /* Prevent scrollbars */
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h3>Box Information</h3>
+        <p>Click on a box to see its details.</p>
+        <p id="box-id">ID: -</p>
+        <p id="box-dims">Dimensions: -</p>
+        <p id="box-vol">Volume: -</p>
+    </div>
+
+    <div id="controls">
+        <label>
+            <input type="checkbox" id="visibilityToggle" disabled> Toggle Selected Box Visibility
+        </label>
+    </div>
+
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Configuration ---
+        const containerDimensions = { w: 1200, h: 1000, d: 1200 };
+        const targetBoxCount = 55;
+        const highlightColor = 0xffff00; // Yellow
+
+        // --- Global Variables ---
+        let scene, camera, renderer, controls;
+        let raycaster, mouse;
+        let containerMesh;
+        let internalBoxesGroup; // Group to hold the 55 boxes
+        let clickableBoxes = []; // Array to store meshes for raycasting
+        let selectedBoxMesh = null;
+        const infoPanel = {
+            id: document.getElementById('box-id'),
+            dims: document.getElementById('box-dims'),
+            vol: document.getElementById('box-vol'),
+            title: document.querySelector('#info h3'),
+            defaultText: document.querySelector('#info p'),
+        };
+        const visibilityToggle = document.getElementById('visibilityToggle');
+
+        // --- Algorithm: Generate Box Data ---
+        // This algorithm recursively splits the largest available space until the target number of boxes is reached.
+        // It guarantees perfect tiling but *does not guarantee* unique dimensions for all boxes.
+        function generateBoxes(containerW, containerH, containerD, count) {
+            let boxIdCounter = 0;
+            const boxes = []; // Final list of box data { id, x, y, z, w, h, d, volume }
+            let spaces = [ // Initial space is the whole container
+                { x: 0, y: 0, z: 0, w: containerW, h: containerH, d: containerD }
+            ];
+
+            while (spaces.length < count) {
+                if (spaces.length === 0) {
+                    console.error("Ran out of spaces before reaching target count.");
+                    break;
+                }
+
+                // Find the space with the largest volume to split
+                let largestSpaceIndex = 0;
+                let largestVolume = 0;
+                for (let i = 0; i < spaces.length; i++) {
+                    const vol = spaces[i].w * spaces[i].h * spaces[i].d;
+                    if (vol > largestVolume) {
+                        largestVolume = vol;
+                        largestSpaceIndex = i;
+                    }
+                }
+
+                const spaceToSplit = spaces.splice(largestSpaceIndex, 1)[0];
+
+                // Decide which axis to split along (prefer the longest dimension)
+                let axis;
+                const dims = [spaceToSplit.w, spaceToSplit.h, spaceToSplit.d];
+                const maxDim = Math.max(...dims);
+                if (maxDim === spaceToSplit.w) axis = 'x';
+                else if (maxDim === spaceToSplit.h) axis = 'y';
+                else axis = 'z';
+
+                // Calculate split point (slightly randomized around middle to encourage dimension variety)
+                let splitCoord;
+                let dimSize;
+                switch (axis) {
+                    case 'x': dimSize = spaceToSplit.w; break;
+                    case 'y': dimSize = spaceToSplit.h; break;
+                    case 'z': dimSize = spaceToSplit.d; break;
+                }
+
+                // Ensure split results in integer dimensions > 0
+                if (dimSize < 2) {
+                    // Cannot split this space further along the chosen axis, put it back and try later
+                    // Or, ideally, choose another axis if possible. For simplicity here, we add it back.
+                     spaces.push(spaceToSplit);
+                     // To prevent infinite loops in edge cases, maybe stop or add the box as is
+                     console.warn("Cannot split space further:", spaceToSplit);
+                     // boxes.push({...spaceToSplit, id: boxIdCounter++, volume: spaceToSplit.w * spaceToSplit.h * spaceToSplit.d });
+                     // Check if we reached the count by adding this unsplittable one
+                     if (spaces.length + boxes.length >= count) {
+                         // If adding the remaining spaces as boxes reaches the count, do it.
+                         while(spaces.length > 0 && boxes.length < count) {
+                             const finalSpace = spaces.pop();
+                             boxes.push({
+                                 id: boxIdCounter++,
+                                 x: finalSpace.x, y: finalSpace.y, z: finalSpace.z,
+                                 w: finalSpace.w, h: finalSpace.h, d: finalSpace.d,
+                                 volume: finalSpace.w * finalSpace.h * finalSpace.d
+                             });
+                         }
+                         break; // Exit the main loop
+                     }
+                     continue; // Try splitting another box in the next iteration
+                }
+
+                const randomFactor = 0.4 + Math.random() * 0.2; // Split between 40% and 60%
+                splitCoord = Math.floor(dimSize * randomFactor);
+                if (splitCoord <= 0) splitCoord = 1;
+                if (splitCoord >= dimSize) splitCoord = dimSize - 1;
+
+                // Create the two new spaces
+                const space1 = { ...spaceToSplit };
+                const space2 = { ...spaceToSplit };
+
+                switch (axis) {
+                    case 'x':
+                        space1.w = splitCoord;
+                        space2.x = spaceToSplit.x + splitCoord;
+                        space2.w = spaceToSplit.w - splitCoord;
+                        break;
+                    case 'y':
+                        space1.h = splitCoord;
+                        space2.y = spaceToSplit.y + splitCoord;
+                        space2.h = spaceToSplit.h - splitCoord;
+                        break;
+                    case 'z':
+                        space1.d = splitCoord;
+                        space2.z = spaceToSplit.z + splitCoord;
+                        space2.d = spaceToSplit.d - splitCoord;
+                        break;
+                }
+
+                // Add the new spaces back to the list
+                 if(space1.w > 0 && space1.h > 0 && space1.d > 0) spaces.push(space1);
+                 if(space2.w > 0 && space2.h > 0 && space2.d > 0) spaces.push(space2);
+            }
+
+             // If loop finished because spaces.length == count, assign IDs and calculate volume
+             if (boxes.length === 0) { // Should happen if the loop finished normally
+                 spaces.forEach(space => {
+                     boxes.push({
+                         id: boxIdCounter++,
+                         x: space.x, y: space.y, z: space.z,
+                         w: space.w, h: space.h, d: space.d,
+                         volume: space.w * space.h * space.d
+                     });
+                 });
+             }
+
+            // Verification (Optional)
+            let totalVolume = 0;
+            boxes.forEach(b => totalVolume += b.volume);
+            console.log(`Generated ${boxes.length} boxes.`);
+            console.log(`Target Volume: ${containerW * containerH * containerD}`);
+            console.log(`Sum of Box Volumes: ${totalVolume}`);
+            if (boxes.length !== count || totalVolume !== containerW * containerH * containerD) {
+                 console.warn("Volume or count mismatch!");
+            }
+
+            // Check for unique dimensions (Informational)
+            const dimensionStrings = new Set();
+            let duplicateDimensions = 0;
+            boxes.forEach(b => {
+                const dims = [b.w, b.h, b.d].sort((a,b) => a-b).join(','); // Sort to treat permutations as same
+                if (dimensionStrings.has(dims)) {
+                    duplicateDimensions++;
+                }
+                dimensionStrings.add(dims);
+            });
+             if (duplicateDimensions > 0) {
+                 console.warn(`Algorithm resulted in ${duplicateDimensions} boxes with non-unique dimension triplets.`);
+             } else {
+                  console.log("All generated boxes have unique dimension triplets.");
+             }
+
+
+            return boxes;
+        }
+
+        // --- ThreeJS Initialization ---
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 10, 5000);
+             // Adjust camera position based on container size
+             camera.position.set(
+                 containerDimensions.w * 0.8,
+                 containerDimensions.h * 1.0,
+                 containerDimensions.d * 0.8
+             );
+             camera.lookAt(0, 0, 0); // Look towards the center of the container
+
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // Optional: smooths movement
+             // Adjust controls target if container isn't centered at world origin
+             // Center of the container: (w/2, h/2, d/2). Set target there.
+             controls.target.set(containerDimensions.w / 2, containerDimensions.h / 2, containerDimensions.d / 2);
+             controls.update(); // Important after setting target
+
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight);
+
+            // Raycaster
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // --- Create Geometry ---
+
+            // Main Container (Wireframe/Transparent)
+            const containerGeo = new THREE.BoxGeometry(containerDimensions.w, containerDimensions.h, containerDimensions.d);
+            const containerMat = new THREE.MeshBasicMaterial({
+                color: 0xaaaaaa,
+                transparent: true,
+                opacity: 0.15,
+                depthWrite: false // Allows seeing boxes inside more easily
+            });
+            containerMesh = new THREE.Mesh(containerGeo, containerMat);
+            // Position the container so its corner is at (0,0,0)
+            containerMesh.position.set(containerDimensions.w / 2, containerDimensions.h / 2, containerDimensions.d / 2);
+            scene.add(containerMesh);
+
+             // Optional: Add edges to the main container
+             const edges = new THREE.EdgesGeometry( containerGeo );
+             const lineMat = new THREE.LineBasicMaterial( { color: 0xffffff, linewidth: 1 } ); // linewidth might not work on all platforms
+             const wireframe = new THREE.LineSegments( edges, lineMat );
+             wireframe.position.copy(containerMesh.position); // Position wireframe same as container mesh
+             scene.add( wireframe );
+
+
+            // Internal Boxes
+            internalBoxesGroup = new THREE.Group(); // Use a group for organization
+            scene.add(internalBoxesGroup);
+
+            const boxData = generateBoxes(containerDimensions.w, containerDimensions.h, containerDimensions.d, targetBoxCount);
+
+            boxData.forEach(box => {
+                const geometry = new THREE.BoxGeometry(box.w, box.h, box.d);
+
+                 // Create a base material with a random color
+                const randomColor = Math.random() * 0xffffff;
+                const material = new THREE.MeshStandardMaterial({
+                    color: randomColor,
+                    metalness: 0.2,
+                    roughness: 0.8,
+                });
+
+                 // Create the mesh
+                const mesh = new THREE.Mesh(geometry, material);
+
+                 // Position the mesh: Geometry is centered, so offset by half dimensions from the corner 'x, y, z'
+                mesh.position.set(
+                    box.x + box.w / 2,
+                    box.y + box.h / 2,
+                    box.z + box.d / 2
+                );
+
+                 // Add outline
+                 const boxEdges = new THREE.EdgesGeometry( geometry );
+                 const boxOutlineMat = new THREE.LineBasicMaterial( { color: 0xffffff, transparent: true, opacity: 0.3 } );
+                 const boxOutline = new THREE.LineSegments( boxEdges, boxOutlineMat );
+                 mesh.add( boxOutline ); // Add outline as child of the mesh
+
+                // Store data for interaction
+                mesh.userData = {
+                    id: box.id,
+                    dimensions: { w: box.w, h: box.h, d: box.d },
+                    volume: box.volume,
+                    originalMaterial: material, // Store original material for deselection
+                    outlineMaterial: boxOutlineMat // Store outline material reference
+                };
+
+                internalBoxesGroup.add(mesh);
+                clickableBoxes.push(mesh); // Add to array for raycasting
+            });
+
+            // --- Event Listeners ---
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('pointerdown', onPointerDown); // Use pointerdown for better mobile/touch support
+            visibilityToggle.addEventListener('change', onVisibilityToggleChange);
+
+            // Initial Info Panel State
+            resetInfoPanel();
+        }
+
+        // --- Event Handlers ---
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function onPointerDown(event) {
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+            // Update the picking ray with the camera and mouse position
+            raycaster.setFromCamera(mouse, camera);
+
+            // Calculate objects intersecting the picking ray
+            const intersects = raycaster.intersectObjects(clickableBoxes); // Check only the internal boxes
+
+            if (intersects.length > 0) {
+                const clickedObject = intersects[0].object;
+                 // Prevent selecting the same box twice without intermediate deselection
+                 if (clickedObject !== selectedBoxMesh) {
+                     selectBox(clickedObject);
+                 } else {
+                     // Clicked the same box again - deselect it
+                     deselectBox();
+                 }
+
+            } else {
+                 // Clicked outside any box - deselect if one is selected
+                 if (selectedBoxMesh) {
+                     deselectBox();
+                 }
+            }
+        }
+
+        function onVisibilityToggleChange() {
+            if (selectedBoxMesh) {
+                selectedBoxMesh.visible = !visibilityToggle.checked;
+                // Also toggle visibility of the outline
+                selectedBoxMesh.children[0].visible = !visibilityToggle.checked; // Assuming outline is the first child
+            }
+        }
+
+
+        // --- Interaction Logic ---
+        function deselectBox() {
+             if (selectedBoxMesh) {
+                 // Restore original material
+                 selectedBoxMesh.material = selectedBoxMesh.userData.originalMaterial;
+                  // Make outline less prominent again (optional)
+                  selectedBoxMesh.userData.outlineMaterial.color.set(0xffffff);
+                  selectedBoxMesh.userData.outlineMaterial.opacity = 0.3;
+
+                 selectedBoxMesh = null;
+                 resetInfoPanel();
+                 visibilityToggle.checked = false;
+                 visibilityToggle.disabled = true;
+             }
+         }
+
+         function selectBox(boxMesh) {
+             // Deselect previous box first
+             deselectBox();
+
+             // Select the new box
+             selectedBoxMesh = boxMesh;
+
+              // Apply highlight (change material or add effect)
+              // Option 1: Change color (simple)
+              // Make sure the original material is MeshStandardMaterial or similar that uses color
+              if (selectedBoxMesh.material.color) {
+                  selectedBoxMesh.material = selectedBoxMesh.material.clone(); // Clone to not affect others sharing the material
+                  selectedBoxMesh.material.color.setHex(highlightColor);
+                  // Make outline more prominent
+                   selectedBoxMesh.userData.outlineMaterial.color.setHex(highlightColor);
+                   selectedBoxMesh.userData.outlineMaterial.opacity = 0.9;
+              } else { // Fallback if material doesn't have standard color property
+                  console.warn("Selected mesh material doesn't have a standard color property for highlighting.");
+                 // Option 2 could be adding an outline or emissive property if using appropriate material
+              }
+
+
+             // Update Info Panel
+             infoPanel.title.textContent = `Selected Box Info`;
+             infoPanel.defaultText.style.display = 'none'; // Hide default text
+             infoPanel.id.textContent = `ID: ${selectedBoxMesh.userData.id}`;
+             const dims = selectedBoxMesh.userData.dimensions;
+             infoPanel.dims.textContent = `Dimensions: ${dims.w} x ${dims.h} x ${dims.d}`;
+             infoPanel.vol.textContent = `Volume: ${selectedBoxMesh.userData.volume.toLocaleString()}`; // Format volume nicely
+
+             // Update and enable visibility toggle
+             visibilityToggle.checked = !selectedBoxMesh.visible; // Set checkbox based on current visibility
+             visibilityToggle.disabled = false;
+         }
+
+         function resetInfoPanel() {
+             infoPanel.title.textContent = `Box Information`;
+             infoPanel.defaultText.style.display = 'block'; // Show default text
+             infoPanel.id.textContent = `ID: -`;
+             infoPanel.dims.textContent = `Dimensions: -`;
+             infoPanel.vol.textContent = `Volume: -`;
+         }
+
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Required if controls.enableDamping is true
+            controls.update();
+
+            renderer.render(scene, camera);
+        }
+
+        // --- Start ---
+        init();
+        animate();
+
+    </script>
+</body>
+</html>

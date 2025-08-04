@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dyson Sphere Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+            color: #fff;
+        }
+
+        #container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #1976D2;
+        }
+
+        input[type="range"] {
+            width: 200px;
+        }
+
+        #stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        label {
+            color: #fff;
+            font-size: 14px;
+        }
+    </style>
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.159.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.159.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+
+<body>
+    <div id="container"></div>
+    <div id="controls">
+        <div class="control-group">
+            <button id="playPause">Start Construction</button>
+            <label>
+                Progress:
+                <input type="range" id="progress" min="0" max="100" value="0">
+            </label>
+        </div>
+        <div class="control-group">
+            <label>
+                Star Brightness:
+                <input type="range" id="brightness" min="0" max="100" value="50">
+            </label>
+            <label>
+                <input type="checkbox" id="showCollectors" checked>
+                Show Collectors
+            </label>
+        </div>
+    </div>
+    <div id="stats">
+        <div>Completion: <span id="completion">0%</span></div>
+        <div>Collectors: <span id="collectorCount">0</span></div>
+        <div>Est. Time: <span id="estimatedTime">--:--</span></div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('container').appendChild(renderer.domElement);
+
+        // Controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        camera.position.z = 5;
+
+        // Star creation
+        const starGeometry = new THREE.SphereGeometry(1, 64, 64);
+        const starMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                brightness: { value: 0.5 }
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                varying vec2 vUv;
+                
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform float brightness;
+                varying vec3 vNormal;
+                varying vec2 vUv;
+
+                float noise(vec2 p) {
+                    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
+                }
+
+                void main() {
+                    // Base star color
+                    vec3 baseColor = vec3(1.0, 0.6, 0.1);
+                    
+                    // Create sunspots
+                    float spots = noise(vUv * 10.0 + time * 0.1);
+                    spots = smoothstep(0.4, 0.6, spots);
+                    
+                    // Create corona effect
+                    float corona = pow(1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0))), 2.0);
+                    corona *= 0.5;
+                    
+                    // Combine effects
+                    vec3 finalColor = mix(baseColor * 0.7, baseColor, spots);
+                    finalColor += vec3(1.0, 0.6, 0.2) * corona;
+                    finalColor *= brightness;
+
+                    gl_FragColor = vec4(finalColor, 1.0);
+                }
+            `
+        });
+
+        const star = new THREE.Mesh(starGeometry, starMaterial);
+        scene.add(star);
+
+        // Dyson Sphere setup
+        const totalCollectors = 1000;
+        const collectors = [];
+        const collectorsGroup = new THREE.Group();
+        scene.add(collectorsGroup);
+
+        function createCollector() {
+            const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.02);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x3498db,
+                emissive: 0x2980b9,
+                specular: 0xffffff,
+                shininess: 100
+            });
+            return new THREE.Mesh(geometry, material);
+        }
+
+        function positionCollector(collector, index, progress) {
+            const phi = Math.acos(-1 + (2 * index) / totalCollectors);
+            const theta = Math.sqrt(totalCollectors * Math.PI) * phi;
+            const radius = 2;
+
+            collector.position.x = radius * Math.cos(theta) * Math.sin(phi);
+            collector.position.y = radius * Math.sin(theta) * Math.sin(phi);
+            collector.position.z = radius * Math.cos(phi);
+
+            collector.lookAt(0, 0, 0);
+        }
+
+        // Initialize collectors
+        for (let i = 0; i < totalCollectors; i++) {
+            const collector = createCollector();
+            collectors.push(collector);
+            collectorsGroup.add(collector);
+            positionCollector(collector, i, 0);
+            collector.visible = false;
+        }
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+
+        const pointLight = new THREE.PointLight(0xffffff, 2);
+        pointLight.position.set(5, 5, 5);
+        scene.add(pointLight);
+
+        // Animation state
+        let isPlaying = false;
+        let currentProgress = 0;
+        const constructionSpeed = 0.1; // Progress per frame
+
+        // Controls setup
+        const playPauseBtn = document.getElementById('playPause');
+        const progressSlider = document.getElementById('progress');
+        const brightnessSlider = document.getElementById('brightness');
+        const showCollectorsCheckbox = document.getElementById('showCollectors');
+
+        playPauseBtn.addEventListener('click', () => {
+            isPlaying = !isPlaying;
+            playPauseBtn.textContent = isPlaying ? 'Pause Construction' : 'Start Construction';
+        });
+
+        progressSlider.addEventListener('input', (e) => {
+            currentProgress = parseInt(e.target.value);
+            updateConstruction(currentProgress);
+        });
+
+        brightnessSlider.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value) / 100;
+            starMaterial.uniforms.brightness.value = value;
+        });
+
+        showCollectorsCheckbox.addEventListener('change', (e) => {
+            collectorsGroup.visible = e.target.checked;
+        });
+
+        function updateConstruction(progress) {
+            const visibleCollectors = Math.floor((progress / 100) * totalCollectors);
+            collectors.forEach((collector, index) => {
+                collector.visible = index < visibleCollectors;
+            });
+
+            // Update stats
+            document.getElementById('completion').textContent = `${progress}%`;
+            document.getElementById('collectorCount').textContent = visibleCollectors;
+            const timeRemaining = Math.ceil((100 - progress) / constructionSpeed / 60);
+            document.getElementById('estimatedTime').textContent =
+                timeRemaining > 0 ? `${timeRemaining}m remaining` : 'Complete';
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Update star shader time
+            starMaterial.uniforms.time.value += 0.01;
+
+            // Update construction progress
+            if (isPlaying && currentProgress < 100) {
+                currentProgress += constructionSpeed;
+                currentProgress = Math.min(currentProgress, 100);
+                progressSlider.value = currentProgress;
+                updateConstruction(currentProgress);
+            }
+
+            // Rotate collectors slightly
+            collectorsGroup.rotation.y += 0.001;
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resizing
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start animation
+        animate();
+    </script>
+</body>
+
+</html>

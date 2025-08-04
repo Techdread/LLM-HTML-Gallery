@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dyson Sphere Construction Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            background-color: #000;
+            color: #fff;
+        }
+
+        #canvas-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui-container {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 100;
+            padding: 0 20px;
+        }
+
+        #controls {
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            padding: 15px;
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .control-label {
+            min-width: 120px;
+            font-size: 14px;
+        }
+
+        button {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #444;
+        }
+
+        button.active {
+            background: #0066ff;
+        }
+
+        input[type="range"] {
+            flex-grow: 1;
+            width: 100%;
+        }
+
+        #progress-container {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        #progress-bar {
+            width: 100%;
+            height: 10px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: #333;
+            border-radius: 5px;
+            outline: none;
+        }
+
+        #progress-bar::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #0066ff;
+            cursor: pointer;
+        }
+
+        #stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            padding: 10px;
+            font-size: 14px;
+            max-width: 200px;
+        }
+
+        #title {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            padding: 10px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="canvas-container"></div>
+
+    <div id="title">Dyson Sphere Construction Simulator</div>
+
+    <div id="stats">
+        <div>Construction Progress: <span id="progress-text">0%</span></div>
+        <div>Collectors Built: <span id="collectors-text">0</span></div>
+        <div>Time Remaining: <span id="time-text">0 years</span></div>
+    </div>
+
+    <div id="ui-container">
+        <div id="progress-container">
+            <input type="range" id="progress-bar" min="0" max="100" value="0" step="0.1">
+        </div>
+
+        <div id="controls">
+            <div class="control-group">
+                <button id="play-pause-btn">▶ Play</button>
+                <button id="reset-btn">↻ Reset</button>
+            </div>
+
+            <div class="control-group">
+                <span class="control-label">Star Brightness:</span>
+                <input type="range" id="brightness-slider" min="0.5" max="2" value="1" step="0.1">
+            </div>
+
+            <div class="control-group">
+                <span class="control-label">Construction Rate:</span>
+                <input type="range" id="rate-slider" min="0.1" max="5" value="1" step="0.1">
+            </div>
+
+            <div class="control-group">
+                <button id="toggle-collectors-btn" class="active">Hide Collectors</button>
+                <button id="toggle-animation-btn">Enable Animation</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // Main variables
+        let scene, camera, renderer, controls;
+        let star, corona, dysonSphere = [];
+        let isPlaying = false;
+        let constructionProgress = 0;
+        let constructionRate = 1; // % per second
+        let lastTimestamp = 0;
+        let totalCollectors = 2000;
+        let visibleCollectors = 0;
+        let showCollectors = true;
+        let animateCollectors = false;
+        let starBrightness = 1;
+
+        // Initialize the application
+        init();
+
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 5;
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // Add orbit controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Create star
+            createStar();
+
+            // Create Dyson Sphere collectors
+            createDysonSphere();
+
+            // Add event listeners
+            setupEventListeners();
+
+            // Start animation loop
+            animate();
+        }
+
+        function createStar() {
+            // Star core
+            const starGeometry = new THREE.SphereGeometry(1, 64, 64);
+            const starMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffff99,
+                transparent: true,
+                opacity: 0.9
+            });
+            star = new THREE.Mesh(starGeometry, starMaterial);
+            scene.add(star);
+
+            // Corona (glow effect)
+            const coronaGeometry = new THREE.SphereGeometry(1.1, 64, 64);
+            const coronaMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff6600,
+                transparent: true,
+                opacity: 0.3,
+                side: THREE.BackSide
+            });
+            corona = new THREE.Mesh(coronaGeometry, coronaMaterial);
+            scene.add(corona);
+
+            // Sunspots
+            const sunspotGeometry = new THREE.SphereGeometry(1.01, 64, 64);
+            const sunspotMaterial = new THREE.MeshBasicMaterial({
+                color: 0x333333,
+                transparent: true,
+                opacity: 0.2
+            });
+            const sunspots = new THREE.Mesh(sunspotGeometry, sunspotMaterial);
+            scene.add(sunspots);
+        }
+
+        function createDysonSphere() {
+            const radius = 3;
+            const collectorSize = 0.1;
+
+            // Clear existing collectors
+            dysonSphere.forEach(collector => scene.remove(collector));
+            dysonSphere = [];
+
+            // Create collectors in a geodesic pattern
+            const icoGeometry = new THREE.IcosahedronGeometry(1, 3);
+            const positions = icoGeometry.attributes.position;
+
+            // We'll use the vertices of an icosahedron as starting points
+            // and create collectors at each point and its mirrored versions
+            for (let i = 0; i < positions.count; i++) {
+                const vertex = new THREE.Vector3();
+                vertex.fromBufferAttribute(positions, i);
+
+                const collectorGeometry = new THREE.OctahedronGeometry(collectorSize, 0);
+                const collectorMaterial = new THREE.MeshPhongMaterial({
+                    color: 0x3399ff,
+                    emissive: 0x004488,
+                    emissiveIntensity: 0.5,
+                    specular: 0xaaaaaa,
+                    shininess: 30,
+                    transparent: true,
+                    opacity: 0.9
+                });
+
+                const collector = new THREE.Mesh(collectorGeometry, collectorMaterial);
+
+                // Position collector on a sphere
+                const position = vertex.clone().normalize().multiplyScalar(radius);
+                collector.position.copy(position);
+
+                // Orient collector to face the star
+                collector.lookAt(new THREE.Vector3(0, 0, 0));
+
+                // Add some randomness to orientation for visual interest
+                collector.rotation.x += (Math.random() - 0.5) * 0.2;
+                collector.rotation.y += (Math.random() - 0.5) * 0.2;
+                collector.rotation.z += (Math.random() - 0.5) * 0.2;
+
+                // Store original position and rotation for animation
+                collector.userData = {
+                    originalPosition: position.clone(),
+                    originalRotation: collector.rotation.clone(),
+                    orbitSpeed: 0.001 + Math.random() * 0.002,
+                    orbitAxis: new THREE.Vector3(
+                        Math.random() - 0.5,
+                        Math.random() - 0.5,
+                        Math.random() - 0.5
+                    ).normalize()
+                };
+
+                dysonSphere.push(collector);
+            }
+
+            // Add additional collectors for higher density
+            // The loop condition needs to account for the number of vertices from the icosahedron
+            for (let i = 0; i < totalCollectors - positions.count; i++) {
+                const collectorGeometry = new THREE.OctahedronGeometry(collectorSize, 0);
+                const collectorMaterial = new THREE.MeshPhongMaterial({
+                    color: 0x3399ff,
+                    emissive: 0x004488,
+                    emissiveIntensity: 0.5,
+                    specular: 0xaaaaaa,
+                    shininess: 30,
+                    transparent: true,
+                    opacity: 0.9
+                });
+
+                const collector = new THREE.Mesh(collectorGeometry, collectorMaterial);
+
+                // Random position on sphere
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const x = radius * Math.sin(phi) * Math.cos(theta);
+                const y = radius * Math.sin(phi) * Math.sin(theta);
+                const z = radius * Math.cos(phi);
+
+                collector.position.set(x, y, z);
+
+                // Orient collector to face the star
+                collector.lookAt(new THREE.Vector3(0, 0, 0));
+
+                // Add some randomness to orientation for visual interest
+                collector.rotation.x += (Math.random() - 0.5) * 0.2;
+                collector.rotation.y += (Math.random() - 0.5) * 0.2;
+                collector.rotation.z += (Math.random() - 0.5) * 0.2;
+
+                // Store original position and rotation for animation
+                collector.userData = {
+                    originalPosition: collector.position.clone(),
+                    originalRotation: collector.rotation.clone(),
+                    orbitSpeed: 0.001 + Math.random() * 0.002,
+                    orbitAxis: new THREE.Vector3(
+                        Math.random() - 0.5,
+                        Math.random() - 0.5,
+                        Math.random() - 0.5
+                    ).normalize()
+                };
+
+                dysonSphere.push(collector);
+            }
+
+            updateCollectorsVisibility();
+        }
+
+        function updateCollectorsVisibility() {
+            visibleCollectors = Math.floor(constructionProgress / 100 * totalCollectors);
+
+            dysonSphere.forEach((collector, index) => {
+                if (index < visibleCollectors && showCollectors) {
+                    scene.add(collector);
+                } else {
+                    scene.remove(collector);
+                }
+            });
+
+            // Update UI
+            document.getElementById('progress-text').textContent = `${constructionProgress.toFixed(1)}%`;
+            document.getElementById('collectors-text').textContent = `${visibleCollectors} / ${totalCollectors}`;
+
+            const yearsRemaining = (100 - constructionProgress) / constructionRate;
+            document.getElementById('time-text').textContent = `${yearsRemaining.toFixed(1)} years`;
+        }
+
+        function animateCollectorMovement() {
+            if (!animateCollectors) return;
+
+            dysonSphere.forEach((collector, index) => {
+                if (index >= visibleCollectors) return;
+
+                // Orbital movement
+                const time = Date.now() * collector.userData.orbitSpeed;
+                const distance = 0.05;
+
+                // Calculate offset position
+                const offset = new THREE.Vector3();
+                const perpendicular = new THREE.Vector3().crossVectors(
+                    collector.userData.originalPosition,
+                    collector.userData.orbitAxis
+                ).normalize();
+
+                offset.copy(perpendicular).multiplyScalar(Math.sin(time) * distance);
+
+                // Apply offset to original position
+                collector.position.copy(collector.userData.originalPosition).add(offset);
+
+                // Slight rotation change
+                collector.rotation.x = collector.userData.originalRotation.x + Math.sin(time * 0.5) * 0.1;
+                collector.rotation.y = collector.userData.originalRotation.y + Math.cos(time * 0.3) * 0.1;
+            });
+        }
+
+        function setupEventListeners() {
+            // Play/Pause button
+            document.getElementById('play-pause-btn').addEventListener('click', () => {
+                isPlaying = !isPlaying;
+                document.getElementById('play-pause-btn').textContent = isPlaying ? '❚❚ Pause' : '▶ Play';
+            });
+
+            // Reset button
+            document.getElementById('reset-btn').addEventListener('click', () => {
+                constructionProgress = 0;
+                document.getElementById('progress-bar').value = 0;
+                updateCollectorsVisibility();
+                if (isPlaying) {
+                    isPlaying = false;
+                    document.getElementById('play-pause-btn').textContent = '▶ Play';
+                }
+            });
+
+            // Progress bar
+            document.getElementById('progress-bar').addEventListener('input', (e) => {
+                constructionProgress = parseFloat(e.target.value);
+                updateCollectorsVisibility();
+            });
+
+            // Brightness slider
+            document.getElementById('brightness-slider').addEventListener('input', (e) => {
+                starBrightness = parseFloat(e.target.value);
+                star.material.opacity = 0.8 * starBrightness;
+                corona.material.opacity = 0.3 * starBrightness;
+            });
+
+            // Rate slider
+            document.getElementById('rate-slider').addEventListener('input', (e) => {
+                constructionRate = parseFloat(e.target.value);
+            });
+
+            // Toggle collectors button
+            document.getElementById('toggle-collectors-btn').addEventListener('click', () => {
+                showCollectors = !showCollectors;
+                document.getElementById('toggle-collectors-btn').textContent = showCollectors ? 'Hide Collectors' : 'Show Collectors';
+                document.getElementById('toggle-collectors-btn').classList.toggle('active', showCollectors);
+                updateCollectorsVisibility();
+            });
+
+            // Toggle animation button
+            document.getElementById('toggle-animation-btn').addEventListener('click', () => {
+                animateCollectors = !animateCollectors;
+                document.getElementById('toggle-animation-btn').textContent = animateCollectors ? 'Disable Animation' : 'Enable Animation';
+                document.getElementById('toggle-animation-btn').classList.toggle('active', animateCollectors);
+            });
+
+            // Window resize
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        function animate(timestamp = 0) {
+            requestAnimationFrame(animate);
+
+            // Calculate delta time for smooth animation
+            const deltaTime = (timestamp - lastTimestamp) / 1000;
+            lastTimestamp = timestamp;
+
+            // Update construction progress if playing
+            if (isPlaying && constructionProgress < 100) {
+                constructionProgress += constructionRate * deltaTime;
+                if (constructionProgress > 100) constructionProgress = 100;
+                document.getElementById('progress-bar').value = constructionProgress;
+                updateCollectorsVisibility();
+            }
+
+            // Animate corona
+            corona.rotation.y += 0.001;
+
+            // Animate collectors if enabled
+            animateCollectorMovement();
+
+            // Update controls
+            controls.update();
+
+            // Render scene
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+
+</html>
