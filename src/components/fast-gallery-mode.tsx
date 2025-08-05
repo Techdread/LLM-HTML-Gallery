@@ -187,7 +187,8 @@ export const FastGalleryMode: React.FC<{
     setLoading(true);
     try {
       const result = await fetchGenerations(pageNum, currentFilters);
-      setItems(result.items.slice(0, ITEMS_PER_PAGE));
+      console.log(`FastGalleryMode: Loaded page ${pageNum}, got ${result.items.length} items, total: ${result.total}, hasMore: ${result.hasMore}`);
+      setItems(result.items); // Don't slice again - adapter already handles pagination
       setTotal(result.total);
     } catch (error) {
       console.error('Failed to load items:', error);

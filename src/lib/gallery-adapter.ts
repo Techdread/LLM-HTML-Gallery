@@ -78,6 +78,7 @@ export async function fetchGenerations(
   total: number;
 }> {
   const allItems = convertHtmlFilesToGenerationItems(htmlFiles);
+  console.log(`Gallery Adapter: Processing ${htmlFiles.length} HTML files, converted to ${allItems.length} items`);
   
   // Apply filters
   let filteredItems = allItems.filter(item => {
@@ -124,11 +125,13 @@ export async function fetchGenerations(
     }
   });
   
-  // Pagination
-  const itemsPerPage = 20;
+  // Pagination - use 9 items per page to match FastGalleryMode
+  const itemsPerPage = 9;
   const startIndex = (page - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedItems = filteredItems.slice(startIndex, endIndex);
+  
+  console.log(`Gallery Adapter: Page ${page}, filtered ${filteredItems.length} items, returning ${paginatedItems.length} items (${startIndex}-${endIndex}), hasMore: ${endIndex < filteredItems.length}`);
   
   return {
     items: paginatedItems,
